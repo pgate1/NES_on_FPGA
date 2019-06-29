@@ -1,0 +1,51 @@
+
+// Delay unit
+// ステレオ化のため使用
+// 8 bit 512 depth
+
+%i "../mem/ram_8x512.h"
+
+circuit delay_unit
+{
+	input delay<9>, din<8>;
+	output dout<8>;
+	instrin write(din);
+
+	reg_wr din_reg<8>;
+	ram_8x512 d_ram;
+
+	stage_name delay_wr { task do(din_reg); }
+
+	instruct write par{
+		generate delay_wr.do(din);
+	}
+
+	stage delay_wr {
+		reg_wr dout_reg<8>, r_adrs<9>;
+		sel w_adrs<9>;
+		state_name st1,st2,st3,st4;
+		first_state st1;
+		par{
+			dout = dout_reg;
+			w_adrs = r_adrs + delay;
+		}
+		state st1 par{
+			r_adrs++;
+			goto st2;
+		}
+		state st2 par{
+			d_ram.write(w_adrs, din_reg);
+			goto st3;
+		}
+		state st3 par{
+			d_ram.read(r_adrs);
+			goto st4;
+		}
+		state st4 par{
+			dout_reg := d_ram.dout;
+			goto st1;
+			finish;
+		}
+	}
+
+}

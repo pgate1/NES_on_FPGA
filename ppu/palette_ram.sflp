@@ -1,0 +1,44 @@
+
+// Pallete RAM
+
+%i "../mem/ram_8x32.h"
+
+circuit palette_ram
+{
+	input adrs<5>, din<8>;
+	output dout<8>;
+	instrin read(adrs), write(adrs, din);
+
+	ram_8x32 ram0;
+	reg_wr dout_reg<8>;
+	instrself ack();
+
+	stage_name read_wait { task do(); }
+
+	if(ack){
+		dout = ram0.dout;
+		dout_reg := dout;
+	}
+	else{
+		dout = dout_reg;
+	}
+
+	instruct write par{
+		if(adrs<3:0>==0b0000) ram0.write(0b00000, din);
+		else ram0.write(adrs, din);
+	}
+
+	instruct read par{
+		if(adrs<1:0>==0b00) ram0.read(0b00000);
+		else ram0.read(adrs);
+		generate read_wait.do();
+	}
+
+	stage read_wait {
+		par{
+			ack();
+			finish;
+		}
+	}
+
+}

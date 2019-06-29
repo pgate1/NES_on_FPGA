@@ -1,0 +1,57 @@
+
+// Sprite RAM
+
+%i "../mem/ram_8x256.h"
+
+circuit sprite_ram
+{
+	input adrs<8>, din<8>;
+	output dout<8>;
+	instrin read(adrs), write(adrs, din);
+	instrin init;
+
+	ram_8x256 ram0;
+	reg_wr dout_reg<8>;
+	instrself ack;
+
+	stage_name read_wait { task do(); }
+	stage_name init_stg { task do(); }
+
+	if(ack){
+		dout = ram0.dout;
+		dout_reg := dout;
+	}
+	else{
+		dout = dout_reg;
+	}
+
+	instruct write par{
+		ram0.write(adrs, din);
+	}
+
+	instruct read par{
+		ram0.read(adrs);
+		generate read_wait.do();
+	}
+
+	instruct init par{
+		init_stg.do();
+	}
+
+	stage read_wait {
+		par{
+			ack();
+			finish;
+		}
+	}
+/*
+	stage init_stg {
+		reg_wr mem_adrs<6>;
+		par{
+			ram0.write(mem_adrs||0b00, 0xF8);
+			mem_adrs++;
+			if(/&mem_adrs) finish;
+		}
+	}
+*/
+}

@@ -1,0 +1,1047 @@
+
+/*
+	Mapper
+		PRG-ROM 16KB banks 8 16 max 256KB
+		CHR-ROM 8KB banks 16 32 max 256KB
+*/
+
+#define MapNSF
+#define Map000
+#define Map001
+#define Map002
+#define Map003
+#define Map004
+#define Map005 // MMC5
+#define Map010
+#define Map016
+#define Map019 // Namcot 106/163
+#define Map023
+#define Map025
+#define Map069 // Sunsoft FME-7
+#define Map073
+#define Map080
+//#define Map089 未完成
+#define Map118
+
+%i "Mapper000.h"
+%i "Mapper001.h"
+%i "Mapper002.h"
+%i "Mapper003.h"
+%i "Mapper004.h"
+%i "Mapper005.h"
+%i "Mapper010.h"
+%i "Mapper016.h"
+%i "Mapper019.h"
+%i "Mapper023.h"
+%i "Mapper025.h"
+%i "Mapper069.h"
+%i "Mapper073.h"
+%i "Mapper080.h"
+%i "Mapper089.h"
+%i "Mapper118.h"
+%i "MapperNSF.h"
+//%i "MapperNSF_nonEx.h"
+%i "MapperDummy.h"
+
+%i "../mem/ram_8x8k.h"
+
+circuit Mapper
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read, chr_write; // RDn, WEn
+	input chr_A<14>, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+	instrin Phi; // 1.789MHz
+	instrin clock1789k, clock3580k;
+
+	reg_wr mapper_id<8>;
+
+output dbg<16>;
+
+#ifdef MapNSF
+	MapperNSF mapper_nsf; // (mapper012)
+//	MapperNSF_nonEx mapper_nsf;
+#else
+	MapperDummy mapper_nsf;
+#endif
+#ifdef Map000
+	Mapper000 mapper_000;
+#endif
+#ifdef Map001
+	Mapper001 mapper_001;
+#else
+	MapperDummy mapper_001;
+#endif
+#ifdef Map002
+	Mapper002 mapper_002;
+#else
+	MapperDummy mapper_002;
+#endif
+#ifdef Map003
+	Mapper003 mapper_003;
+#else
+	MapperDummy mapper_003;
+#endif
+#ifdef Map004
+	Mapper004 mapper_004;
+#else
+	MapperDummy mapper_004;
+#endif
+#ifdef Map005
+	Mapper005 mapper_005;
+#else
+	MapperDummy mapper_005;
+#endif
+#ifdef Map010
+	Mapper010 mapper_010;
+#else
+	MapperDummy mapper_010;
+#endif
+#ifdef Map016
+	Mapper016 mapper_016;
+#else
+	MapperDummy mapper_016;
+#endif
+#ifdef Map019
+	Mapper019 mapper_019;
+#else
+	MapperDummy mapper_019;
+#endif
+#ifdef Map023
+	Mapper023 mapper_023;
+#else
+	MapperDummy mapper_023;
+#endif
+#ifdef Map025
+	Mapper025 mapper_025;
+#else
+	MapperDummy mapper_025;
+#endif
+#ifdef Map069
+	Mapper069 mapper_069;
+#else
+	MapperDummy mapper_069;
+#endif
+#ifdef Map073
+	Mapper073 mapper_073;
+#else
+	MapperDummy mapper_073;
+#endif
+#ifdef Map080
+	Mapper080 mapper_080;
+#else
+	MapperDummy mapper_080;
+#endif
+#ifdef Map089
+	Mapper089 mapper_089;
+#else
+	MapperDummy mapper_089;
+#endif
+#ifdef Map118
+	Mapper118 mapper_118;
+#else
+	MapperDummy mapper_118;
+#endif
+
+	instrin set_head(set_Din);
+	reg_wr mapper_id_low<4>, hdA<4>;
+	instrout head_ok, head_err;
+	output f_nes;
+
+	instrin set_map(set_Din), soft_reset;
+	instrin attach(set_Din);
+	input set_Din<8>;
+	output ack, set_ok;
+	reg_wr set_data<8>;
+	instrself init();
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<20>; // PRG_ROM max 1MB
+	output prg_ram_wdata<8>;
+	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_rom_rdata<8>;
+
+	instrout chr_ram_read(chr_ram_adrs);
+	output chr_ram_adrs<18>; // CHR_ROM max 256KB
+	output chr_ram_wdata<8>;
+	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	input chr_ram_rdata<8>;
+
+	instrin ready;
+	input mute<7>;
+	input nes_sound_L<8>, nes_sound_R<8>;
+	sel usound_L<11>, usound_R<11>;
+	output sound_L<15>, sound_R<15>;
+	instrout note_mmc5, note_n106, note_fds, note_vrc6, note_sn5b, note_vrc7;
+
+	input fat_eof;
+input dbg_in<8>;
+
+	instrin hblank;
+
+	reg_wr n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
+
+	ram_8x8k exram;
+
+	// NSF拡張
+	instrin tim1MHz;
+	output f_nsf, f_nsf_PAL;
+	instrout NMI_out;
+	output title_str<256>, title_length<5>, artist_str<128>;
+
+	stage_name attach_stg { task do(set_data); }
+	stage_name exram_init { task do(); }
+
+	par{
+
+#ifdef MapNSF
+		mapper_nsf.mute = mute<5:0>;
+
+		usound_L = // <11>
+			((0b00||nes_sound_L||0b0) & (11#(^mute<6>))) // <8>
+			+ mapper_nsf.usound // <11>
+			+ mapper_019.usound // <11>
+			+ mapper_069.usound;
+
+		usound_R =
+			((0b00||nes_sound_R||0b0) & (11#(^mute<6>)))
+			+ mapper_nsf.usound
+			+ mapper_019.usound
+			+ mapper_069.usound;
+
+		sound_L = // <15s>
+			(0b0 || usound_L || 0b000) // <11>
+			+ (0b0 || mapper_nsf.ssound); // <14u> VRC7
+		sound_R = 
+			(0b0 || usound_R || 0b000) // <11>
+			+ (0b0 || mapper_nsf.ssound); // <14u> VRC7
+
+		mapper_nsf.set_eof = fat_eof;
+dbg = mapper_nsf.dbg;
+#else
+		usound_L = // <11>
+			(0b00||nes_sound_L||0b0) // <8>
+			+ mapper_019.usound // <11>
+			+ mapper_069.usound;
+
+		usound_R =
+			(0b00||nes_sound_R||0b0)
+			+ mapper_019.usound // <11>
+			+ mapper_069.usound;
+
+		sound_L = // <15s>
+			(0b0 || usound_L || 0b000); // <11>
+//		   + (15#mapper.ssound); // <14s>
+		sound_R = 
+			(0b0 || usound_R || 0b000); // <11>
+//		   + (15#mapper.ssound);
+#endif
+
+		ack = (^attach_stg.do) & mapper_nsf.ack;
+
+#ifdef MapNSF
+		mapper_nsf.prg_rom_rdata = prg_rom_rdata;
+		mapper_nsf.ROM_SELn = ROM_SELn;
+		mapper_nsf.prg_A = prg_A;
+		mapper_nsf.prg_Din = prg_Din;
+		mapper_nsf.exram_rdata = exram.dout;
+		f_nsf_PAL = mapper_nsf.f_PAL;
+		title_str = mapper_nsf.title_str;
+		title_length = mapper_nsf.title_length;
+		artist_str = mapper_nsf.artist_str;
+#endif
+#ifdef Map000
+		mapper_000.prg_rom_rdata = prg_rom_rdata;
+		mapper_000.ROM_SELn = ROM_SELn;
+		mapper_000.prg_A = prg_A;
+		mapper_000.prg_Din = prg_Din;
+		mapper_000.chr_A = chr_A;
+		mapper_000.chr_ram_rdata = chr_ram_rdata;
+		mapper_000.n16kRomBanks = n16kRomBanks;
+		mapper_000.fMirroringType = fMirroringType;
+#endif
+#ifdef Map001
+		mapper_001.prg_rom_rdata = prg_rom_rdata;
+		mapper_001.ROM_SELn = ROM_SELn;
+		mapper_001.prg_A = prg_A;
+		mapper_001.prg_Din = prg_Din;
+		mapper_001.chr_A = chr_A;
+		mapper_001.chr_Din = chr_Din;
+		mapper_001.chr_ram_rdata = chr_ram_rdata;
+		mapper_001.n16kRomBanks = n16kRomBanks;
+		mapper_001.n8kVRomBanks = n8kVRomBanks;
+		mapper_001.fMirroringType = fMirroringType;
+		mapper_001.exram_rdata = exram.dout;
+#endif
+#ifdef Map002
+		mapper_002.prg_rom_rdata = prg_rom_rdata;
+		mapper_002.ROM_SELn = ROM_SELn;
+		mapper_002.prg_A = prg_A;
+		mapper_002.prg_Din = prg_Din;
+		mapper_002.chr_A = chr_A;
+		mapper_002.chr_Din = chr_Din;
+		mapper_002.chr_ram_rdata = chr_ram_rdata;
+		mapper_002.n16kRomBanks = n16kRomBanks;
+		mapper_002.fMirroringType = fMirroringType;
+#endif
+#ifdef Map003
+		mapper_003.prg_rom_rdata = prg_rom_rdata;
+		mapper_003.ROM_SELn = ROM_SELn;
+		mapper_003.prg_A = prg_A;
+		mapper_003.prg_Din = prg_Din;
+		mapper_003.chr_A = chr_A;
+		mapper_003.chr_ram_rdata = chr_ram_rdata;
+		mapper_003.fMirroringType = fMirroringType;
+#endif
+#ifdef Map004
+		mapper_004.prg_rom_rdata = prg_rom_rdata;
+		mapper_004.ROM_SELn = ROM_SELn;
+		mapper_004.prg_A = prg_A;
+		mapper_004.prg_Din = prg_Din;
+		mapper_004.chr_A = chr_A;
+		mapper_004.chr_Din = chr_Din;
+		mapper_004.chr_ram_rdata = chr_ram_rdata;
+		mapper_004.n16kRomBanks = n16kRomBanks;
+		mapper_004.n8kVRomBanks = n8kVRomBanks;
+		mapper_004.fMirroringType = fMirroringType;
+		mapper_004.exram_rdata = exram.dout;
+#endif
+#ifdef Map005
+		mapper_005.prg_rom_rdata = prg_rom_rdata;
+		mapper_005.ROM_SELn = ROM_SELn;
+		mapper_005.prg_A = prg_A;
+		mapper_005.prg_Din = prg_Din;
+		mapper_005.chr_A = chr_A;
+		mapper_005.chr_Din = chr_Din;
+		mapper_005.chr_ram_rdata = chr_ram_rdata;
+		mapper_005.n16kRomBanks = n16kRomBanks;
+		mapper_005.n8kVRomBanks = n8kVRomBanks;
+		mapper_005.fMirroringType = fMirroringType;
+		mapper_005.exram_rdata = exram.dout;
+#endif
+#ifdef Map010
+		mapper_010.prg_rom_rdata = prg_rom_rdata;
+		mapper_010.ROM_SELn = ROM_SELn;
+		mapper_010.prg_A = prg_A;
+		mapper_010.prg_Din = prg_Din;
+		mapper_010.chr_A = chr_A;
+		mapper_010.chr_ram_rdata = chr_ram_rdata;
+		mapper_010.n16kRomBanks = n16kRomBanks;
+		mapper_010.fMirroringType = fMirroringType;
+		mapper_010.exram_rdata = exram.dout;
+#endif
+#ifdef Map016
+		mapper_016.prg_rom_rdata = prg_rom_rdata;
+		mapper_016.ROM_SELn = ROM_SELn;
+		mapper_016.prg_A = prg_A;
+		mapper_016.prg_Din = prg_Din;
+		mapper_016.chr_A = chr_A;
+		mapper_016.chr_ram_rdata = chr_ram_rdata;
+		mapper_016.n16kRomBanks = n16kRomBanks;
+//		mapper_016.fMirroringType = fMirroringType;
+		mapper_016.exram_rdata = exram.dout;
+#endif
+#ifdef Map019
+		mapper_019.prg_rom_rdata = prg_rom_rdata;
+		mapper_019.ROM_SELn = ROM_SELn;
+		mapper_019.prg_A = prg_A;
+		mapper_019.prg_Din = prg_Din;
+		mapper_019.chr_A = chr_A;
+		mapper_019.chr_Din = chr_Din;
+		mapper_019.chr_ram_rdata = chr_ram_rdata;
+		mapper_019.n16kRomBanks = n16kRomBanks;
+		mapper_019.n8kVRomBanks = n8kVRomBanks;
+		mapper_019.fMirroringType = fMirroringType;
+		mapper_019.exram_rdata = exram.dout;
+#endif
+#ifdef Map023
+		mapper_023.prg_rom_rdata = prg_rom_rdata;
+		mapper_023.ROM_SELn = ROM_SELn;
+		mapper_023.prg_A = prg_A;
+		mapper_023.prg_Din = prg_Din;
+		mapper_023.chr_A = chr_A;
+		mapper_023.chr_ram_rdata = chr_ram_rdata;
+		mapper_023.fMirroringType = fMirroringType;
+		mapper_023.exram_rdata = exram.dout;
+#endif
+#ifdef Map025
+		mapper_025.prg_rom_rdata = prg_rom_rdata;
+		mapper_025.ROM_SELn = ROM_SELn;
+		mapper_025.prg_A = prg_A;
+		mapper_025.prg_Din = prg_Din;
+		mapper_025.chr_A = chr_A;
+		mapper_025.chr_ram_rdata = chr_ram_rdata;
+		mapper_025.n16kRomBanks = n16kRomBanks;
+		mapper_025.fMirroringType = fMirroringType;
+		mapper_025.exram_rdata = exram.dout;
+#endif
+#ifdef Map069
+		mapper_069.prg_rom_rdata = prg_rom_rdata;
+		mapper_069.ROM_SELn = ROM_SELn;
+		mapper_069.prg_A = prg_A;
+		mapper_069.prg_Din = prg_Din;
+		mapper_069.chr_A = chr_A;
+		mapper_069.chr_ram_rdata = chr_ram_rdata;
+		mapper_069.n16kRomBanks = n16kRomBanks;
+		mapper_069.fMirroringType = fMirroringType;
+#endif
+#ifdef Map073
+		mapper_073.prg_rom_rdata = prg_rom_rdata;
+		mapper_073.ROM_SELn = ROM_SELn;
+		mapper_073.prg_A = prg_A;
+		mapper_073.prg_Din = prg_Din;
+		mapper_073.chr_A = chr_A;
+		mapper_073.chr_Din = chr_Din;
+		mapper_073.chr_ram_rdata = chr_ram_rdata;
+		mapper_073.fMirroringType = fMirroringType;
+		mapper_073.exram_rdata = exram.dout;
+#endif
+#ifdef Map080
+		mapper_080.prg_rom_rdata = prg_rom_rdata;
+		mapper_080.ROM_SELn = ROM_SELn;
+		mapper_080.prg_A = prg_A;
+		mapper_080.prg_Din = prg_Din;
+		mapper_080.chr_A = chr_A;
+		mapper_080.chr_ram_rdata = chr_ram_rdata;
+		mapper_080.n16kRomBanks = n16kRomBanks;
+		mapper_080.fMirroringType = fMirroringType;
+		mapper_080.exram_rdata = exram.dout;
+#endif
+#ifdef Map089
+		mapper_089.prg_rom_rdata = prg_rom_rdata;
+		mapper_089.ROM_SELn = ROM_SELn;
+		mapper_089.prg_A = prg_A;
+		mapper_089.prg_Din = prg_Din;
+		mapper_089.chr_A = chr_A;
+		mapper_089.chr_ram_rdata = chr_ram_rdata;
+		mapper_089.fMirroringType = fMirroringType;
+#endif
+#ifdef Map118
+		mapper_118.prg_rom_rdata = prg_rom_rdata;
+		mapper_118.ROM_SELn = ROM_SELn;
+		mapper_118.prg_A = prg_A;
+		mapper_118.prg_Din = prg_Din;
+		mapper_118.chr_A = chr_A;
+//		mapper_004.chr_Din = chr_Din;
+		mapper_118.chr_ram_rdata = chr_ram_rdata;
+		mapper_118.n16kRomBanks = n16kRomBanks;
+//		mapper_004.n8kVRomBanks = n8kVRomBanks;
+		mapper_118.fMirroringType = fMirroringType;
+		mapper_118.exram_rdata = exram.dout;
+#endif
+
+		switch(mapper_id){
+		case 0: par{
+			prg_Dout = mapper_000.prg_Dout;
+			chr_Dout = mapper_000.chr_Dout;
+			IRQn = mapper_000.IRQn;
+			VRAM_CSn = mapper_000.VRAM_CSn;
+			VRAM_A10 = mapper_000.VRAM_A10;
+		}
+		case 1: par{
+			prg_Dout = mapper_001.prg_Dout;
+			chr_Dout = mapper_001.chr_Dout;
+			IRQn = mapper_001.IRQn;
+			VRAM_CSn = mapper_001.VRAM_CSn;
+			VRAM_A10 = mapper_001.VRAM_A10;
+		}
+		case 2: par{
+			prg_Dout = mapper_002.prg_Dout;
+			chr_Dout = mapper_002.chr_Dout;
+			IRQn = mapper_002.IRQn;
+			VRAM_CSn = mapper_002.VRAM_CSn;
+			VRAM_A10 = mapper_002.VRAM_A10;
+		}
+		case 3: par{
+			prg_Dout = mapper_003.prg_Dout;
+			chr_Dout = mapper_003.chr_Dout;
+			IRQn = mapper_003.IRQn;
+			VRAM_CSn = mapper_003.VRAM_CSn;
+			VRAM_A10 = mapper_003.VRAM_A10;
+		}
+		case 4: par{
+			prg_Dout = mapper_004.prg_Dout;
+			chr_Dout = mapper_004.chr_Dout;
+			IRQn = mapper_004.IRQn;
+			VRAM_CSn = mapper_004.VRAM_CSn;
+			VRAM_A10 = mapper_004.VRAM_A10;
+		}
+		case 5: par{
+			prg_Dout = mapper_005.prg_Dout;
+			chr_Dout = mapper_005.chr_Dout;
+			IRQn = mapper_005.IRQn;
+			VRAM_CSn = mapper_005.VRAM_CSn;
+			VRAM_A10 = mapper_005.VRAM_A10;
+		}
+		case 10: par{ // Mapper 010
+			prg_Dout = mapper_010.prg_Dout;
+			chr_Dout = mapper_010.chr_Dout;
+			IRQn = mapper_010.IRQn;
+			VRAM_CSn = mapper_010.VRAM_CSn;
+			VRAM_A10 = mapper_010.VRAM_A10;
+		}
+		case 12: par{ // mapper 012 NSF
+			prg_Dout = mapper_nsf.prg_Dout;
+			IRQn = mapper_nsf.IRQn;
+		}
+		case 16: par{ // Mapper 016
+			prg_Dout = mapper_016.prg_Dout;
+			chr_Dout = mapper_016.chr_Dout;
+			IRQn = mapper_016.IRQn;
+			VRAM_CSn = mapper_016.VRAM_CSn;
+			VRAM_A10 = mapper_016.VRAM_A10;
+		}
+		case 19: par{ // mapper 019
+			prg_Dout = mapper_019.prg_Dout;
+			chr_Dout = mapper_019.chr_Dout;
+			IRQn = mapper_019.IRQn;
+			VRAM_CSn = mapper_019.VRAM_CSn;
+			VRAM_A10 = mapper_019.VRAM_A10;
+		}
+		case 23: par{ // Mapper 023
+			prg_Dout = mapper_023.prg_Dout;
+			chr_Dout = mapper_023.chr_Dout;
+			IRQn = mapper_023.IRQn;
+			VRAM_CSn = mapper_023.VRAM_CSn;
+			VRAM_A10 = mapper_023.VRAM_A10;
+		}
+		case 25: par{ // Mapper 025
+			prg_Dout = mapper_025.prg_Dout;
+			chr_Dout = mapper_025.chr_Dout;
+			IRQn = mapper_025.IRQn;
+			VRAM_CSn = mapper_025.VRAM_CSn;
+			VRAM_A10 = mapper_025.VRAM_A10;
+		}
+		case 69: par{ // Mapper 069
+			prg_Dout = mapper_069.prg_Dout;
+			chr_Dout = mapper_069.chr_Dout;
+			IRQn = mapper_069.IRQn;
+			VRAM_CSn = mapper_069.VRAM_CSn;
+			VRAM_A10 = mapper_069.VRAM_A10;
+		}
+		case 73: par{ // Mapper 073
+			prg_Dout = mapper_073.prg_Dout;
+			chr_Dout = mapper_073.chr_Dout;
+			IRQn = mapper_073.IRQn;
+			VRAM_CSn = mapper_073.VRAM_CSn;
+			VRAM_A10 = mapper_073.VRAM_A10;
+		}
+		case 80: par{ // Mapper 080
+			prg_Dout = mapper_080.prg_Dout;
+			chr_Dout = mapper_080.chr_Dout;
+			IRQn = mapper_080.IRQn;
+			VRAM_CSn = mapper_080.VRAM_CSn;
+			VRAM_A10 = mapper_080.VRAM_A10;
+		}
+		case 89: par{ // Mapper 089
+			prg_Dout = mapper_089.prg_Dout;
+			chr_Dout = mapper_089.chr_Dout;
+			IRQn = mapper_089.IRQn;
+			VRAM_CSn = mapper_089.VRAM_CSn;
+			VRAM_A10 = mapper_089.VRAM_A10;
+		}
+		case 118: par{ // Mapper 118
+			prg_Dout = mapper_118.prg_Dout;
+			chr_Dout = mapper_118.chr_Dout;
+			IRQn = mapper_118.IRQn;
+			VRAM_CSn = mapper_118.VRAM_CSn;
+			VRAM_A10 = mapper_118.VRAM_A10;
+		}
+		}
+
+		f_nsf = mapper_id==0x0C;
+		f_nes = ^f_nsf;
+
+//dbg = mapper_nsf.dbg;
+	}
+
+	instruct ready par{
+		mapper_nsf.ready();
+		mapper_019.ready();
+		mapper_069.ready();
+	}
+
+	instruct soft_reset init();
+
+	instruct init par{
+		mapper_001.init();
+		mapper_002.init();
+		mapper_003.init();
+		mapper_004.init();
+		mapper_005.init();
+		mapper_010.init();
+		mapper_016.init();
+		mapper_019.init();
+		mapper_023.init();
+		mapper_025.init();
+		mapper_069.init();
+		mapper_073.init();
+		mapper_080.init();
+		mapper_089.init();
+		mapper_118.init();
+	}
+
+	instruct prg_read par{
+		switch(mapper_id){
+			case   0: mapper_000.prg_read();
+			case   1: mapper_001.prg_read();
+			case   2: mapper_002.prg_read();
+			case   3: mapper_003.prg_read();
+			case   4: mapper_004.prg_read();
+			case   5: mapper_005.prg_read();
+			case  10: mapper_010.prg_read();
+			case  12: mapper_nsf.prg_read();
+			case  16: mapper_016.prg_read();
+			case  19: mapper_019.prg_read();
+			case  23: mapper_023.prg_read();
+			case  25: mapper_025.prg_read();
+			case  69: mapper_069.prg_read();
+			case  73: mapper_073.prg_read();
+			case  80: mapper_080.prg_read();
+			case  89: mapper_089.prg_read();
+			case 118: mapper_118.prg_read();
+		}
+	}
+
+	instruct prg_write par{
+		switch(mapper_id){
+			case   0: mapper_000.prg_write();
+			case   1: mapper_001.prg_write();
+			case   2: mapper_002.prg_write();
+			case   3: mapper_003.prg_write();
+			case   4: mapper_004.prg_write();
+			case   5: mapper_005.prg_write();
+			case  10: mapper_010.prg_write();
+			case  12: mapper_nsf.prg_write();
+			case  16: mapper_016.prg_write();
+			case  19: mapper_019.prg_write();
+			case  23: mapper_023.prg_write();
+			case  25: mapper_025.prg_write();
+			case  69: mapper_069.prg_write();
+			case  73: mapper_073.prg_write();
+			case  80: mapper_080.prg_write();
+			case  89: mapper_089.prg_write();
+			case 118: mapper_118.prg_write();
+		}
+	}
+
+	instruct chr_read par{
+		switch(mapper_id){
+			case   0: mapper_000.chr_read();
+			case   1: mapper_001.chr_read();
+			case   2: mapper_002.chr_read();
+			case   3: mapper_003.chr_read();
+			case   4: mapper_004.chr_read();
+			case   5: mapper_005.chr_read();
+			case  10: mapper_010.chr_read();
+			case  16: mapper_016.chr_read();
+			case  19: mapper_019.chr_read();
+			case  23: mapper_023.chr_read();
+			case  25: mapper_025.chr_read();
+			case  69: mapper_069.chr_read();
+			case  73: mapper_073.chr_read();
+			case  80: mapper_080.chr_read();
+			case  89: mapper_089.chr_read();
+			case 118: mapper_118.chr_read();
+		}
+	}
+
+	instruct chr_write par{
+		switch(mapper_id){
+			case   1: mapper_001.chr_write();
+			case   2: mapper_002.chr_write();
+			case   4: mapper_004.chr_write();
+			case  19: mapper_019.chr_write();
+			case  73: mapper_073.chr_write();
+		}
+	}
+
+	instruct Phi par{
+		mapper_073.Phi();
+	}
+
+	instruct clock1789k par{
+		mapper_002.Phi();
+		mapper_nsf.Phi();
+		mapper_019.Phi();
+		mapper_069.Phi();
+	}
+
+#ifdef MapNSF
+	instruct clock3580k mapper_nsf.run3580();
+	instruct tim1MHz mapper_nsf.tim1MHz();
+#endif
+
+	instruct hblank par{
+		mapper_016.hblank();
+		mapper_019.hblank();
+		mapper_023.hblank();
+		mapper_025.hblank();
+		mapper_069.hblank();
+		mapper_118.hblank();
+	}
+
+#ifdef MapNSF
+	instruct mapper_nsf.prg_ram_read par{
+		prg_ram_read(mapper_nsf.prg_ram_adrs);
+	}
+	instruct mapper_nsf.prg_ram_write par{
+		prg_ram_write(mapper_nsf.prg_ram_adrs, mapper_nsf.prg_ram_wdata);
+	}
+	instruct mapper_nsf.exram_read par{
+		exram.read(mapper_nsf.exram_adrs);
+	}
+	instruct mapper_nsf.exram_write par{
+		exram.write(mapper_nsf.exram_adrs, mapper_nsf.exram_wdata);
+	}
+#endif
+#ifdef Map000
+	instruct mapper_000.prg_ram_read par{
+		prg_ram_read(0b00000||mapper_000.prg_ram_adrs);
+	}
+	instruct mapper_000.chr_ram_read par{
+		chr_ram_read(0b00000||mapper_000.chr_ram_adrs);
+	}
+#endif
+#ifdef Map001
+	instruct mapper_001.prg_ram_read par{
+		prg_ram_read(0b0||mapper_001.prg_ram_adrs);
+	}
+	instruct mapper_001.chr_ram_read par{
+		chr_ram_read(0b0||mapper_001.chr_ram_adrs);
+	}
+	instruct mapper_001.chr_ram_write par{
+		chr_ram_write(0b0||mapper_001.chr_ram_adrs, mapper_001.chr_ram_wdata);
+	}
+	instruct mapper_001.exram_read par{
+		exram.read(mapper_001.exram_adrs);
+	}
+	instruct mapper_001.exram_write par{
+		exram.write(mapper_001.exram_adrs, mapper_001.exram_wdata);
+	}
+#endif
+#ifdef Map002
+	instruct mapper_002.prg_ram_read par{
+		prg_ram_read(0b00||mapper_002.prg_ram_adrs);
+	}
+	instruct mapper_002.chr_ram_read par{
+		chr_ram_read(0b00000||mapper_002.chr_ram_adrs);
+	}
+	instruct mapper_002.chr_ram_write par{
+		chr_ram_write(0b00000||mapper_002.chr_ram_adrs, mapper_002.chr_ram_wdata);
+	}
+#endif
+#ifdef Map003
+	instruct mapper_003.prg_ram_read par{
+		prg_ram_read(0b00000||mapper_003.prg_ram_adrs);
+	}
+	instruct mapper_003.chr_ram_read par{
+		chr_ram_read(0b000||mapper_003.chr_ram_adrs);
+	}
+#endif
+#ifdef Map004
+	instruct mapper_004.prg_ram_read par{
+		prg_ram_read(0b0||mapper_004.prg_ram_adrs);
+	}
+	instruct mapper_004.chr_ram_read par{
+		chr_ram_read(mapper_004.chr_ram_adrs);
+	}
+	instruct mapper_004.chr_ram_write par{
+		chr_ram_write(mapper_004.chr_ram_adrs, mapper_004.chr_ram_wdata);
+	}
+	instruct mapper_004.exram_read par{
+		exram.read(mapper_004.exram_adrs);
+	}
+	instruct mapper_004.exram_write par{
+		exram.write(mapper_004.exram_adrs, mapper_004.exram_wdata);
+	}
+#endif
+#ifdef Map005
+	instruct mapper_005.prg_ram_read par{
+		prg_ram_read(0b0||mapper_005.prg_ram_adrs);
+	}
+	instruct mapper_005.chr_ram_read par{
+		chr_ram_read(mapper_005.chr_ram_adrs);
+	}
+/*
+	instruct mapper_004.chr_ram_write par{
+		chr_ram_write(mapper_004.chr_ram_adrs, mapper_004.chr_ram_wdata);
+	}
+*/
+	instruct mapper_005.exram_read par{
+		exram.read(mapper_005.exram_adrs);
+	}
+	instruct mapper_005.exram_write par{
+		exram.write(mapper_005.exram_adrs, mapper_005.exram_wdata);
+	}
+#endif
+#ifdef Map010
+	instruct mapper_010.prg_ram_read par{
+		prg_ram_read(0b00||mapper_010.prg_ram_adrs);
+	}
+	instruct mapper_010.chr_ram_read par{
+		chr_ram_read(0b0||mapper_010.chr_ram_adrs);
+	}
+	instruct mapper_010.exram_read par{
+		exram.read(mapper_010.exram_adrs);
+	}
+	instruct mapper_010.exram_write par{
+		exram.write(mapper_010.exram_adrs, mapper_010.exram_wdata);
+	}
+#endif
+#ifdef Map016
+	instruct mapper_016.prg_ram_read par{
+		prg_ram_read(0b0||mapper_016.prg_ram_adrs);
+	}
+	instruct mapper_016.chr_ram_read par{
+		chr_ram_read(mapper_016.chr_ram_adrs);
+	}
+	instruct mapper_016.exram_read par{
+		exram.read(mapper_016.exram_adrs);
+	}
+	instruct mapper_016.exram_write par{
+		exram.write(mapper_016.exram_adrs, mapper_016.exram_wdata);
+	}
+#endif
+#ifdef Map019
+	instruct mapper_019.prg_ram_read par{
+		prg_ram_read(0b0||mapper_019.prg_ram_adrs);
+	}
+	instruct mapper_019.chr_ram_read par{
+		chr_ram_read(mapper_019.chr_ram_adrs);
+	}
+	instruct mapper_019.chr_ram_write par{
+		chr_ram_write(mapper_019.chr_ram_adrs, mapper_019.chr_ram_wdata);
+	}
+	instruct mapper_019.exram_read par{
+		exram.read(mapper_019.exram_adrs);
+	}
+	instruct mapper_019.exram_write par{
+		exram.write(mapper_019.exram_adrs, mapper_019.exram_wdata);
+	}
+#endif
+#ifdef Map023
+	instruct mapper_023.prg_ram_read par{
+		prg_ram_read(0b000||mapper_023.prg_ram_adrs);
+	}
+	instruct mapper_023.chr_ram_read par{
+		chr_ram_read(mapper_023.chr_ram_adrs);
+	}
+	instruct mapper_023.exram_read par{
+		exram.read(mapper_023.exram_adrs);
+	}
+	instruct mapper_023.exram_write par{
+		exram.write(mapper_023.exram_adrs, mapper_023.exram_wdata);
+	}
+#endif
+#ifdef Map025
+	instruct mapper_025.prg_ram_read par{
+		prg_ram_read(0b00||mapper_025.prg_ram_adrs);
+	}
+	instruct mapper_025.chr_ram_read par{
+		chr_ram_read(mapper_025.chr_ram_adrs);
+	}
+	instruct mapper_025.exram_read par{
+		exram.read(mapper_025.exram_adrs);
+	}
+	instruct mapper_025.exram_write par{
+		exram.write(mapper_025.exram_adrs, mapper_025.exram_wdata);
+	}
+#endif
+#ifdef Map069
+	instruct mapper_069.prg_ram_read par{
+		prg_ram_read(0b00||mapper_069.prg_ram_adrs);
+	}
+	instruct mapper_069.chr_ram_read par{
+		chr_ram_read(mapper_069.chr_ram_adrs);
+	}
+#endif
+#ifdef Map073
+	instruct mapper_073.prg_ram_read par{
+		prg_ram_read(0b000||mapper_073.prg_ram_adrs);
+	}
+	instruct mapper_073.chr_ram_read par{
+		chr_ram_read(0b00000||mapper_073.chr_ram_adrs);
+	}
+	instruct mapper_073.chr_ram_write par{
+		chr_ram_write(0b00000||mapper_073.chr_ram_adrs, mapper_073.chr_ram_wdata);
+	}
+	instruct mapper_073.exram_read par{
+		exram.read(mapper_073.exram_adrs);
+	}
+	instruct mapper_073.exram_write par{
+		exram.write(mapper_073.exram_adrs, mapper_073.exram_wdata);
+	}
+#endif
+#ifdef Map080
+	instruct mapper_080.prg_ram_read par{
+		prg_ram_read(0b00||mapper_080.prg_ram_adrs);
+	}
+	instruct mapper_080.chr_ram_read par{
+		chr_ram_read(0b0||mapper_080.chr_ram_adrs);
+	}
+	instruct mapper_080.exram_read par{
+		exram.read(mapper_080.exram_adrs);
+	}
+	instruct mapper_080.exram_write par{
+		exram.write(mapper_080.exram_adrs, mapper_080.exram_wdata);
+	}
+#endif
+#ifdef Map089
+	instruct mapper_089.prg_ram_read par{
+		prg_ram_read(0b00||mapper_089.prg_ram_adrs);
+	}
+	instruct mapper_089.chr_ram_read par{
+		chr_ram_read(0b0||mapper_089.chr_ram_adrs);
+	}
+#endif
+#ifdef Map118
+	instruct mapper_118.prg_ram_read par{
+		prg_ram_read(0b00||mapper_118.prg_ram_adrs);
+	}
+	instruct mapper_118.chr_ram_read par{
+		chr_ram_read(0b0||mapper_118.chr_ram_adrs);
+	}
+	instruct mapper_118.exram_read par{
+		exram.read(mapper_118.exram_adrs);
+	}
+	instruct mapper_118.exram_write par{
+		exram.write(mapper_118.exram_adrs, mapper_118.exram_wdata);
+	}
+#endif
+
+#ifdef MapNSF
+	instruct mapper_nsf.NMI_out NMI_out();
+	instruct mapper_nsf.mmc5_note_on note_mmc5();
+	instruct mapper_nsf.n106_note_on note_n106();
+	instruct mapper_nsf.fds_note_on  note_fds();
+	instruct mapper_nsf.vrc6_note_on note_vrc6();
+	instruct mapper_nsf.sn5b_note_on note_sn5b();
+	instruct mapper_nsf.vrc7_note_on note_vrc7();
+#endif
+
+	instruct set_head par{
+		any{
+			hdA==0x0 : if(set_Din!='N') head_err();
+			hdA==0x1 : if(set_Din!='E') head_err();
+			hdA==0x2 : if(set_Din!='S') head_err();
+			hdA==0x3 : if(set_Din=='M'){ // NSF
+				mapper_id := 0x0C;
+				head_ok();
+			}
+			hdA==0x6 : par{ // NES ROM
+				mapper_id_low := set_Din<7:4>;
+			}
+			hdA==0x7 : par{ // NES ROM
+				mapper_id := set_Din<7:4> || mapper_id_low;
+				head_ok();
+			}
+		}
+		if(head_ok | head_err) hdA := 0;
+		else hdA++;
+	}
+
+	instruct set_map par{
+		mapper_id := set_Din;
+	}
+
+	instruct attach par{
+		if(mapper_id==12) mapper_nsf.attach(set_Din);
+		else generate attach_stg.do(set_Din);
+	}
+
+	stage attach_stg {
+		reg_wr set_ok_reg;
+		reg_wr hA<4>, pA<14>, pbA<5>, cbA<5>;
+		state_name ainit,head,prgw,chrw,rend,oend;
+		first_state ainit;
+		par{
+			set_ok = set_ok_reg | mapper_nsf.set_ok;
+			finish;
+		}
+		state ainit par{
+			hA := 0;
+			pA := 0;
+			pbA := 0;
+			cbA := 0;
+		//	exram_init.do(); exramはランダム（シルヴァサーガ対策）
+			goto head;
+		}
+		state head par{
+			any{
+				hA==0x4 : n16kRomBanks := set_data<5:0>;
+				hA==0x5 : n8kVRomBanks := set_data<5:0>;
+				hA==0x6 : fMirroringType := set_data<0>;
+			}
+			hA++;
+			if(/&hA) goto prgw;
+		}
+		state prgw par{
+			// PRGを0x4000(16384)バイト×n16kRomBanks コピー
+			prg_ram_write(0b0||pbA<4:0>||pA<13:0>, set_data);
+			pA++;
+			if(/&pA<13:0>){
+				pbA++;
+				if(
+					 n16kRomBanks<0>               | //  1
+					(n16kRomBanks<1> &   pbA<0>  ) | //  2
+					(n16kRomBanks<2> & /&pbA<1:0>) | //  4
+					(n16kRomBanks<3> & /&pbA<2:0>) | //  8
+					(n16kRomBanks<4> & /&pbA<3:0>) | // 16
+					(n16kRomBanks<5> & /&pbA<4:0>)   // 32
+				){
+					if(/|n8kVRomBanks) goto chrw;
+					else goto rend;
+				}
+			}
+		}
+		state chrw par{
+			// CHRを0x2000(8192)バイト×n8kVRomBanks コピー
+			chr_ram_write(cbA<4:0>||pA<12:0>, set_data);
+			pA++;
+			if(/&pA<12:0>){
+				cbA++;
+				if(
+					 n8kVRomBanks<0>               | //  1
+					(n8kVRomBanks<1> &   cbA<0>  ) | //  2
+					(n8kVRomBanks<2> & /&cbA<1:0>) | //  4
+					(n8kVRomBanks<3> & /&cbA<2:0>) | //  8
+					(n8kVRomBanks<4> & /&cbA<3:0>) | // 16
+					(n8kVRomBanks<5> & /&cbA<4:0>)   // 32
+				//	(n8kVRomBanks<6> & /&cbA<5:0>)   // 64 メタルスレイダーグローリー
+				){
+					goto rend;
+				}
+			}
+		}
+		state rend par{
+			init();
+			set_ok_reg := 0b1;
+			goto oend;
+		}
+		state oend par{
+			set_ok_reg := 0b0;
+			goto ainit;
+		}
+	}
+
+	stage exram_init {
+		reg_wr mem_adrs<13>;
+		par{
+			exram.write(mem_adrs, 0x00);
+			mem_adrs++;
+			if(/&mem_adrs) finish;
+		}
+	}
+
+}

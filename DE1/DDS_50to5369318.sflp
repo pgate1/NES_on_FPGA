@@ -1,0 +1,26 @@
+/*
+ 50MHz‚©‚ç–ñ5369318Hz‚ğ¶¬‚·‚é
+ ‰ÁZ’l 218125:0x3540D  ‚µ‚«‚¢’l 2031217:0x1EFE71  Œë· 0.000003Hz
+*/
+
+circuit DDS_50to5369318
+{
+	sel max<21>, add<18>;
+	reg_wr count<22>;
+	instrout run;
+	sel sa<22>;
+
+	par{
+		add = 218125;
+		max = 2031217;
+
+		sa = count - (0b0||max);
+		if(sa<21>){ // count < max
+			count += (0b0000 || add);
+		}
+		else{
+			count := sa + (0b0000 || add);
+			run();
+		}
+	}
+}

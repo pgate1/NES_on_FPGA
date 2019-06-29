@@ -1,0 +1,189 @@
+
+//%i "mul_4.h"
+
+declare mul_4 interface
+{
+	input a<4>, b<4>;
+	output dout<8>;
+	instrin con;
+	instr_arg con(a, b);
+}
+
+circuit n106_core
+{
+	instrin io_write(io_A, io_Din);
+	input io_A, io_Din<8>;
+	instrin io_read(io_A);
+	output io_Dout<8>;
+	reg_wr io_Dout_reg<8>;
+
+	instrin run, ready;
+
+	output sound<7>;
+	instrout note_on;
+
+	reg_wr adrs<7>, auto_inc;
+	mem wav[128]<8>;
+
+	rega period_low[8]<8>;
+	rega period_mid[8]<8>;
+	rega period_high[8]<2>;
+	rega length[8]<3>;
+	rega offset[8]<8>;
+	rega volume[8]<4>;
+	reg_wr chcount<3>;
+
+	instrself periwith(period_now, period_add);
+	sel period_now<19>, period_add<18>, periout<19>;
+	sel period_sa<19>;
+
+	mul_4 vmul;
+	rega chout[8]<4>;
+
+	stage_name Render { task do(); }
+
+	if(io_read) io_Dout_reg := io_Dout;
+	else io_Dout = io_Dout_reg;
+
+	sound = 
+		(0b000 || chout_0) +
+		(0b000 || chout_1) +
+		(0b000 || chout_2) +
+		(0b000 || chout_3) +
+		(0b000 || chout_4) +
+		(0b000 || chout_5) +
+		(0b000 || chout_6) +
+		(0b000 || chout_7);
+
+	instruct ready par{
+		par(i=0;i<8;i++){
+			volume[i] := 0x0;
+		}
+	}
+
+	instruct io_read par{
+		any{
+			io_A==0b0 : par{
+				io_Dout = 0x48;
+				if(auto_inc) adrs++;
+			}
+			io_A==0b1 : par{
+				io_Dout = 0xF8;
+			}
+		}
+	}
+
+	instruct io_write par{
+		any{
+			io_A==0b0 : par{ // $4800
+				wav[adrs] := io_Din;
+				if(auto_inc) adrs++;
+// 0100 0000
+// 0111 1000
+				if(adrs<6>==0b1) any{
+					adrs<2:0>==0b000 : any(i=0;i<8;i++){ // 周波数Low
+						adrs<5:3>==i : period_low[i] := io_Din;
+					}
+					adrs<2:0>==0b010 : any(i=0;i<8;i++){ // 周波数Middle
+						adrs<5:3>==i : par{ period_mid[i] := io_Din; if(/|io_Din) note_on(); }
+					}
+					adrs<2:0>==0b100 : any(i=0;i<8;i++){ // 周波数High 波形長
+						adrs<5:3>==i : par{ period_high[i] := io_Din<1:0>; length[i] := io_Din<4:2>; }
+					}
+					adrs<2:0>==0b110 : any(i=0;i<8;i++){ // 波形データオフセット
+						adrs<5:3>==i : offset[i] := io_Din;
+					}
+					adrs<2:0>==0b111 : par{
+						any(i=0;i<8;i++){ // ボリューム
+							adrs<5:3>==i : volume[i] := io_Din<3:0>;
+						}
+						// 使用チャンネル数($7Fへのwriteのみ)
+						if(adrs<5:3>==0b111) chcount := io_Din<6:4>;
+					}
+				}
+			}
+			io_A==0b1 : par{ // $F800
+				adrs := io_Din<6:0>;
+				auto_inc := io_Din<7>;
+			}
+		}
+	}
+
+	instruct run par{
+		generate Render.do();
+	}
+
+	instruct periwith par{
+		// 再生周波数はサンプル長には影響しないようだ
+		// 0xE000だとちょっと低い0x8000だとちょっと高い
+		period_sa = period_now - (0b011||0xC000); // だいたいこれくらい？
+		// オーバーした分は残すこと
+		if(period_sa<18>){ // まだ
+			periout = period_now + (0b0 || period_add);
+		}
+		else{ // Over
+			periout = period_sa + (0b0 || period_add);
+		}
+	}
+
+	// 1chあたり4サイクルで動かすこと 20160124
+	stage Render {
+		reg_ws selch<3>;
+		rega period[8]<19>;
+		rega widx[8]<5>;
+		reg_wr hl, value<8>;
+		state_name wcount, wread, wset, wlen, wait1, wait2;
+		first_state wcount;
+		finish;
+		state wcount par{
+			any(i=0;i<8;i++){
+				selch==i : period[i] := periwith(period[i], period_high[i]||period_mid[i]||period_low[i]).periout;
+			}
+			if(period_sa<18>) goto wait1;
+			else goto wread;
+		}
+		state wait1 goto wait2; // wread
+		state wait2 goto wlen; // wset
+		state wread par{
+			// 波形メモリからread
+			sel wadrs<8>;
+			any(i=0;i<8;i++){
+				selch==i : wadrs = offset[i] + (0b000 || widx[i]);
+			}
+//			any(i=0;i<8;i++){
+//				selch==i : wadrs = offset[i] + (0b000 || period[i]<21:17>);
+//			}
+			value := wav[wadrs<7:1>]; // 128 adrs
+			hl := wadrs<0>;
+
+			// 次のサンプルに移動、サンプル長の最後ならインデックスクリア
+			any(i=0;i<8;i++){
+				selch==i : par{ if(widx[i]==((^length[i])||0b11)){ widx[i]:=0; } else{ widx[i]++; } }
+			}
+
+			goto wset;
+		}
+		state wset par{
+			// チャンネル出力 ＝ ボリューム × 波形メモリ4bit
+			sel w<4>;
+			if(hl) w = value<7:4>;
+			else   w = value<3:0>;
+
+			// unsigned 8 bit = unsigned 4 bit x unsigned 4 bit
+			any(i=0;i<8;i++){
+				selch==i : chout[i] := vmul.con(volume[i], w).dout<7:4>;
+			}
+
+			goto wlen;
+		}
+		state wlen par{
+			// 次のチャンネルを選択
+			// チャンネルは7ch,6ch,5ch...の順に使用される模様
+			if(selch==(^chcount)) selch := 0b111;
+			else selch--;
+
+			goto wcount;
+		}
+	}
+
+}

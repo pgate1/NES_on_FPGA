@@ -1,0 +1,76 @@
+
+/*
+	Mapper Dummy
+		PRG-ROM 
+		CHR-ROM 
+*/
+
+circuit MapperDummy
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read, chr_write; // RDn, WEn
+	input chr_A<14>, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+	instrin hblank;
+
+	instrin attach(set_Din), init;
+	input set_Din<8>;
+	output ack, set_ok;
+
+	input n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<20>;
+	output prg_ram_wdata<8>;
+	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_ram_rdata<8>;
+
+	instrout chr_ram_read(chr_ram_adrs);
+	output chr_ram_adrs<20>;
+	output chr_ram_wdata<8>;
+	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	input chr_ram_rdata<8>;
+
+	instrin ready;
+
+	reg_wr notused;
+
+	par{
+
+		if(notused){
+		//	prg_ram_read(0x00000);
+			prg_ram_write(0x00000, 0x00);
+		//	chr_ram_read(0x00000);
+			chr_ram_write(0x00000, 0x00);
+		}
+
+		prg_Dout = 0x00;
+		VRAM_CSn = 0b0;
+		VRAM_A10 = 0b0;
+		chr_Dout = 0x00;
+
+		IRQn = 0b1;
+
+		usound = // <11>
+		   0b00000000000;
+
+		ssound = // <14s>
+		   0b00000000000000;
+
+		ack = 0b1;
+		set_ok = 0b0;
+	}
+
+}

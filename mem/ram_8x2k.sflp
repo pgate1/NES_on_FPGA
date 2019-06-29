@@ -1,0 +1,19 @@
+
+// RAM
+// 8 bit 2048 depth
+
+circuit ram_8x2k
+{
+	input adrs<11>, din<8>;
+	output dout<8>;
+	instrin read(adrs);
+	instrin write(adrs, din);
+
+	mem cells[2048]<8>;
+	reg dout_reg<8>;
+
+	instruct read dout_reg := cells[adrs];
+	dout = dout_reg;
+
+	instruct write cells[adrs] := din;
+}

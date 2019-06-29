@@ -1,0 +1,342 @@
+
+/*
+	Mapper 019
+	Namcot 106/163
+		PRG-ROM 16KB banks 2 (4) 8 16 32 max 512KB
+		CHR-ROM 8KB banks 16 32 max 256KB
+		CHR-RAM (nes.nsf)
+*/
+
+%i "n106/n106_core.h"
+
+circuit Mapper019
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read, chr_write; // RDn, WEn
+	input chr_A<14>, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+
+	instrout exram_read(exram_adrs);
+	output exram_adrs<13>; // EX_RAM 8KB
+	output exram_wdata<8>;
+	instrout exram_write(exram_adrs, exram_wdata);
+	input exram_rdata<8>;
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<19>; // PRG_ROM max 512KB
+//	output prg_ram_wdata<8>;
+//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_rom_rdata<8>;
+
+	instrout chr_ram_read(chr_ram_adrs);
+	output chr_ram_adrs<18>; // CHR_ROM max 256KB
+	output chr_ram_wdata<8>;
+	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	input chr_ram_rdata<8>;
+
+	instrin ready, init;
+
+	instrin hblank;
+input dbg<8>;
+
+	input n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
+
+	reg_wr prg_bank4<6>, prg_bank5<6>, prg_bank6<6>, prg_bank7<6>;
+	reg_wr chr_bank0<8>, chr_bank1<8>, chr_bank2<8>, chr_bank3<8>;
+	reg_wr chr_bank4<8>, chr_bank5<8>, chr_bank6<8>, chr_bank7<8>;
+	reg_wr chr_bank8<8>, chr_bank9<8>, chr_bank10<8>, chr_bank11<8>;
+
+	instrself map_rom, map_exrom, map_exram;
+
+	reg_ws IRQn_reg;
+
+	n106_core n106;
+
+	reg_wr regs0, regs1;
+	reg_wr irq_counter_L<8>, irq_counter_H<8>, irq_enabled;
+
+	reg_wr prg_mask<6>, chr_mask<8>;
+	sel chr_bank<8>;
+	sel irq_counter_s<16>;
+
+	par{
+
+		if(ROM_SELn==0b0){
+			map_rom();
+		}
+		else any{
+			prg_A<14:13>==0b10 : map_exrom();
+			prg_A<14:13>==0b11 : map_exram();
+		}
+
+		any{
+			map_exrom : any{
+				prg_A<12:10>==0b010 : par{ // $4800
+					prg_Dout = n106.io_Dout;
+				}
+			}
+			map_exram : prg_Dout = exram_rdata;
+			map_rom : prg_Dout = prg_rom_rdata;
+		}
+
+		if(chr_A<13>==0b0){
+			// chr_bank<8> + chr_A<10> = <18>
+		//	sel chr_read_bank<8>;
+			switch(chr_A<12:10>){
+				case 0b000: chr_bank = chr_bank0;
+				case 0b001: chr_bank = chr_bank1;
+				case 0b010: chr_bank = chr_bank2;
+				case 0b011: chr_bank = chr_bank3;
+				case 0b100: chr_bank = chr_bank4;
+				case 0b101: chr_bank = chr_bank5;
+				case 0b110: chr_bank = chr_bank6;
+				case 0b111: chr_bank = chr_bank7;
+			}
+			VRAM_CSn = 0b1;
+		}
+		else{ // NameTable or CHR-ROM
+			switch(chr_A<11:10>){
+				case 0b00: par{
+					if(/&chr_bank8<7:5>){
+						VRAM_CSn = 0b0;
+						VRAM_A10 = chr_bank8<0>;
+					}
+					else{
+						VRAM_CSn = 0b1;
+						chr_bank = chr_bank8;
+					}
+				}
+				case 0b01: par{
+					if(/&chr_bank9<7:5>){
+						VRAM_CSn = 0b0;
+						VRAM_A10 = chr_bank9<0>;
+					}
+					else{
+						VRAM_CSn = 0b1;
+						chr_bank = chr_bank9;
+					}
+				}
+				case 0b10: par{
+					if(/&chr_bank10<7:5>){
+						VRAM_CSn = 0b0;
+						VRAM_A10 = chr_bank10<0>;
+					}
+					else{
+						VRAM_CSn = 0b1;
+						chr_bank = chr_bank10;
+					}
+				}
+				case 0b11: par{
+					if(/&chr_bank11<7:5>){
+						VRAM_CSn = 0b0;
+						VRAM_A10 = chr_bank11<0>;
+					}
+					else{
+						VRAM_CSn = 0b1;
+						chr_bank = chr_bank11;
+					}
+				}
+			}
+		}
+
+		chr_Dout = chr_ram_rdata;
+
+		IRQn = IRQn_reg;
+
+		usound = // <11>
+			0b00 || n106.sound || 0b00;
+
+		ssound = // <14s>
+		   0b00000000000000;
+	}
+
+	instruct ready n106.ready();
+
+	instruct init par{
+		prg_bank4 := 0b000000;
+		prg_bank5 := 0b000001;
+		prg_bank6 := 0b111110; //(n16kRomBanks - 0b000001)<4:0> || 0b0;
+		prg_bank7 := 0b111111; //(n16kRomBanks - 0b000001)<4:0> || 0b1;
+		prg_mask  := (n16kRomBanks - 0b000001)<4:0> || 0b1;
+		irq_counter_L := 0;
+		irq_counter_H := 0;
+		irq_enabled := 0;
+		chr_bank0 := 0x00;
+		chr_bank1 := 0x01;
+		chr_bank2 := 0x02;
+		chr_bank3 := 0x03;
+		chr_bank4 := 0x04;
+		chr_bank5 := 0x05;
+		chr_bank6 := 0x06;
+		chr_bank7 := 0x07;
+		chr_mask := (n8kVRomBanks - 0b000001)<4:0> || 0b111;
+		if(fMirroringType){
+			chr_bank8 := 0x00;
+			chr_bank9 := 0x01;
+			chr_bank10 := 0x00;
+			chr_bank11 := 0x01;
+		}
+		else{
+			chr_bank8 := 0x00;
+			chr_bank9 := 0x00;
+			chr_bank10 := 0x01;
+			chr_bank11 := 0x01;
+		}
+		regs0 := 0b0;
+		regs1 := 0b0;
+	}
+
+	instruct prg_read any{
+		map_exrom : par{
+			switch(prg_A<12:11>){
+				case 0b01: par{ // $4800
+					n106.io_read(0b0);
+				}
+				case 0b10: par{ // $5000
+					prg_Dout = irq_counter_L;
+				}
+				case 0b11: par{ // $5800
+					prg_Dout = 0b0 || irq_counter_H<6:0>;
+				}
+				default: prg_Dout = 0b0 || prg_A<14:8>;
+			}
+		}
+		map_rom : par{
+			// prg_bank<6> + prg_A<13> = <19>
+			sel prg_read_bank<6>;
+			switch(prg_A<14:13>){
+				case 0b00: prg_read_bank = prg_bank4;
+				case 0b01: prg_read_bank = prg_bank5;
+				case 0b10: prg_read_bank = prg_bank6;
+				case 0b11: prg_read_bank = prg_bank7;
+			}
+			prg_ram_read((prg_read_bank & prg_mask) || prg_A<12:0>);
+		}
+		map_exram : exram_read(prg_A<12:0>);
+	}
+
+	instruct prg_write any{
+		map_exrom : par{
+			switch(prg_A<12:11>){
+				case 0b01: par{ // $4800
+					n106.io_write(0b0, prg_Din);
+				}
+				case 0b10: par{ // $5000
+					irq_counter_L := prg_Din;
+					IRQn_reg := 0b1;
+				}
+				case 0b11: par{ // $5800
+					irq_counter_H := 0b0 || prg_Din<6:0>;
+					irq_enabled := prg_Din<7>;
+					IRQn_reg := 0b1;
+				}
+			}
+		}
+		map_rom : par{
+			switch(prg_A<14:11>){
+				case 0b0000: par{ // $8000
+					if((prg_Din<7:5>!=0b111) | regs0) chr_bank0 := prg_Din;
+					else chr_bank0 := 0x00;
+				}
+				case 0b0001: par{ // $8800
+					if((prg_Din<7:5>!=0b111) | regs0) chr_bank1 := prg_Din;
+					else chr_bank1 := 0x01;
+				}
+				case 0b0010: par{ // $9000
+					if((prg_Din<7:5>!=0b111) | regs0) chr_bank2 := prg_Din;
+					else chr_bank2 := 0x02;
+				}
+				case 0b0011: par{ // $9800
+					if((prg_Din<7:5>!=0b111) | regs0) chr_bank3 := prg_Din;
+					else chr_bank3 := 0x03;
+				}
+				case 0b0100: par{ // $A000
+					if((prg_Din<7:5>!=0b111) | regs1) chr_bank4 := prg_Din;
+					else chr_bank4 := 0x04;
+				}
+				case 0b0101: par{ // $A800
+					if((prg_Din<7:5>!=0b111) | regs1) chr_bank5 := prg_Din;
+					else chr_bank5 := 0x05;
+				}
+				case 0b0110: par{ // $B000
+					if((prg_Din<7:5>!=0b111) | regs1) chr_bank6 := prg_Din;
+					else chr_bank6 := 0x06;
+				}
+				case 0b0111: par{ // $B800
+					if((prg_Din<7:5>!=0b111) | regs1) chr_bank7 := prg_Din;
+					else chr_bank7 := 0x07;
+				}
+				case 0b1000: par{ // $C000
+					chr_bank8 := prg_Din;
+				}
+				case 0b1001: par{ // $C800
+					chr_bank9 := prg_Din;
+				}
+				case 0b1010: par{ // $D000
+					chr_bank10 := prg_Din;
+				}
+				case 0b1011: par{ // $D800
+					chr_bank11 := prg_Din;
+				}
+				case 0b1100: par{ // $E000
+					prg_bank4 := prg_Din<5:0>;
+				}
+				case 0b1101: par{ // $E800
+					prg_bank5 := prg_Din<5:0>;
+					regs0 := prg_Din<6>;
+					regs1 := prg_Din<7>;
+				}
+				case 0b1110: par{ // $F000
+					prg_bank6 := prg_Din<5:0>;
+				}
+				case 0b1111: par{ // $F800
+					n106.io_write(0b1, prg_Din);
+				}
+			}
+		}
+		map_exram : /*if(fSaveRAMenable)*/ exram_write(prg_A<12:0>, prg_Din);
+	}
+
+	instruct chr_read par{
+		if(VRAM_CSn==0b1){
+			chr_ram_read((chr_bank & chr_mask) || chr_A<9:0>);
+		}
+	}
+
+	instruct chr_write par{
+		if(VRAM_CSn==0b1){
+			chr_ram_write((chr_bank & chr_mask) || chr_A<9:0>, chr_Din);
+		}
+	}
+
+	instruct Phi n106.run();
+
+	instruct hblank par{
+		if(irq_enabled){
+			if(irq_counter_H<7>){
+				irq_counter_L := 0xFF;
+				irq_counter_H := 0x7F;
+				IRQn_reg := 0b0;
+				irq_enabled := 0b0;
+			}
+			else{
+				irq_counter_s = (irq_counter_H||irq_counter_L) + 0x0071;
+				irq_counter_L := irq_counter_s<7:0>;
+				irq_counter_H := irq_counter_s<15:8>;
+			}
+		}
+	}
+
+}

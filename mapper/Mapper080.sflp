@@ -1,0 +1,164 @@
+
+/*
+	Mapper 080
+	Tatio X1-005
+		PRG-ROM 16KB banks 8 16 max 256KB
+		CHR-ROM 8KB banks 16 max 128KB
+*/
+
+circuit Mapper080
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read;//, chr_write; // RDn, WEn
+	input chr_A<14>;//, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+//	instrin Phi; // 1.789MHz
+//	output usound<11>, ssound<14>;
+
+	instrout exram_read(exram_adrs);
+	output exram_adrs<13>; // EX_RAM  8KB
+	output exram_wdata<8>;
+	instrout exram_write(exram_adrs, exram_wdata);
+	input exram_rdata<8>;
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<18>; // PRG_ROM max 256KB
+//	output prg_ram_wdata<8>;
+//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_rom_rdata<8>;
+
+	instrout chr_ram_read(chr_ram_adrs);
+	output chr_ram_adrs<17>; // CHR_ROM max 128KB
+//	output chr_ram_wdata<8>;
+//	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	input chr_ram_rdata<8>;
+
+	instrin init;
+
+	input n16kRomBanks<6>, fMirroringType;
+	reg_wr fMirroringType_reg;
+
+	reg_wr prg_bank0<5>, prg_bank1<5>, prg_bank2<5>, prg_last_bank<5>;
+	reg_wr chr_bank01<6>, chr_bank23<6>; // 偶数のみ
+	reg_wr chr_bank4<7>, chr_bank5<7>, chr_bank6<7>, chr_bank7<7>;
+
+	instrself map_rom, map_exram;
+
+	sel prg_adrs<16>;
+
+	par{
+
+		if(ROM_SELn==0b0){
+			map_rom();
+		}
+		else any{
+		//	prg_A<14:13>==0b10 : map_exrom();
+			prg_A<14:13>==0b11 : map_exram();
+		}
+
+		any{
+			map_rom : prg_Dout = prg_rom_rdata;
+			map_exram : prg_Dout = exram_rdata;
+		}
+
+		prg_adrs = 0b0 || prg_A;
+
+		VRAM_CSn = ^chr_A<13>;
+
+		if(fMirroringType_reg){
+			// 垂直ミラー, 水平スクロールタイプ
+			VRAM_A10 = chr_A<10>;
+		}
+		else{
+			// 水平ミラー, 垂直スクロールタイプ
+			VRAM_A10 = chr_A<11>;
+		}
+
+		chr_Dout = chr_ram_rdata;
+
+		IRQn = 0b1;
+/*
+		usound = // <11>
+		   0b00000000000;
+
+		ssound = // <14s>
+		   0b00000000000000;
+*/
+	}
+
+	instruct init par{
+		prg_bank0 := 0b00000;
+		prg_bank1 := 0b00001;
+		prg_bank2 :=     n16kRomBanks<4> || 0b1110;
+		prg_last_bank := n16kRomBanks<4> || 0b1111;
+
+		chr_bank01 := 0b000000; // 0x00
+		chr_bank23 := 0b000001; // 0x02
+		chr_bank4 := 0b000||0x4;
+		chr_bank5 := 0b000||0x5;
+		chr_bank6 := 0b000||0x6;
+		chr_bank7 := 0b000||0x7;
+
+		fMirroringType_reg := fMirroringType;
+	}
+
+	instruct prg_read any{
+		map_rom : par{
+			// prg_bank<5> + prg_A<13> = <18>
+			sel prg_read_bank<5>;
+			switch(prg_A<14:13>){
+				case 0b00: prg_read_bank = prg_bank0;
+				case 0b01: prg_read_bank = prg_bank1;
+				case 0b10: prg_read_bank = prg_bank2;
+				case 0b11: prg_read_bank = prg_last_bank;
+			}
+			prg_ram_read(prg_read_bank || prg_A<12:0>);
+		}
+		map_exram : exram_read(prg_A<12:0>);
+	}
+
+	instruct prg_write any{
+		map_exram : switch(prg_adrs){
+			case 0x7EF0: chr_bank01 := prg_Din<6:1>;
+			case 0x7EF1: chr_bank23 := prg_Din<6:1>;
+			case 0x7EF2: chr_bank4 := prg_Din<6:0>;
+			case 0x7EF3: chr_bank5 := prg_Din<6:0>;
+			case 0x7EF4: chr_bank6 := prg_Din<6:0>;
+			case 0x7EF5: chr_bank7 := prg_Din<6:0>;
+			case 0x7EF6: fMirroringType_reg := prg_Din<0>;
+			(case 0x7EFA) | (case 0x7EFB): prg_bank0 := prg_Din<4:0>;
+			(case 0x7EFC) | (case 0x7EFD): prg_bank1 := prg_Din<4:0>;
+			(case 0x7EFE) | (case 0x7EFF): prg_bank2 := prg_Din<4:0>;
+			default: exram_write(prg_A<12:0>, prg_Din);
+		}
+	}
+
+	instruct chr_read par{
+		if(chr_A<13>==0b0){
+			// chr_bank<7> + chr_A<10> = <17>
+			sel chr_read_bank<7>;
+			switch(chr_A<12:10>){
+				case 0b000: chr_read_bank = chr_bank01 || 0b0;
+				case 0b001: chr_read_bank = chr_bank01 || 0b1;
+				case 0b010: chr_read_bank = chr_bank23 || 0b0;
+				case 0b011: chr_read_bank = chr_bank23 || 0b1;
+				case 0b100: chr_read_bank = chr_bank4;
+				case 0b101: chr_read_bank = chr_bank5;
+				case 0b110: chr_read_bank = chr_bank6;
+				case 0b111: chr_read_bank = chr_bank7;
+			}
+			chr_ram_read(chr_read_bank || chr_A<9:0>);
+		}
+	}
+
+}

@@ -1,0 +1,274 @@
+
+/*
+	Mapper NSF (0x0C)
+
+	バンク 0x00～0xFF
+	バンクサイズ 4KB(0x1000)
+	最大ファイルサイズ約 1MB
+
+	Verilator用音源なし
+*/
+
+%i "nsf_init_rom.h"
+
+circuit MapperNSF_nonEx
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+	instrself map_rom, map_exrom, map_exram;
+
+	// CHR-ROM 未使用
+//	instrin chr_read, chr_write; // RDn, WEn
+//	input chr_A<14>, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+	instrout mmc5_note_on, n106_note_on, fds_note_on, vrc6_note_on, sn5b_note_on, vrc7_note_on;
+
+	instrin attach(set_Din);
+	input set_Din<8>, set_eof;
+	output ack, set_ok;
+
+	instrout exram_read(exram_adrs);
+	output exram_adrs<13>; // EX_RAM 8KB
+	output exram_wdata<8>;
+	instrout exram_write(exram_adrs, exram_wdata);
+	input exram_rdata<8>;
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<20>;
+	output prg_ram_wdata<8>;
+	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_rom_rdata<8>;
+
+	// 未使用
+//	instrout chr_ram_read;
+//	output chr_ram_wdata<8>;
+//	instrout chr_ram_write;
+//	input chr_ram_rdata<8>;
+
+	instrin run3580, ready;
+
+	input mute<6>;
+
+	instrin tim1MHz;
+	reg_wr nmi_on;
+	reg_ws speed_count<16>;
+	reg_wr speed_NTSC_L<8>, speed_NTSC_H<8>;
+	reg_wr speed_PAL_L<8>, speed_PAL_H<8>;
+	instrout NMI_out;
+	output f_PAL;
+	reg_wr f_speed_PAL;
+
+output dbg<16>;
+reg_wr dbg_reg<16>;
+
+	rega nsf_bank[8]<8>;
+	reg_wr ext_sound<8>;
+	sel badrs<20>;
+
+	nsf_init_rom init_rom;
+
+	reg_wr set_data<8>;
+	reg_wr set_ok_reg;
+
+	stage_name attach_stg { task do(set_data); }
+
+	par{
+
+		if(ROM_SELn==0b0){
+			map_rom();
+		}
+		else any{
+			prg_A<14:13>==0b10 : map_exrom();
+			prg_A<14:13>==0b11 : map_exram();
+		}
+
+		// 未使用
+		chr_Dout = 0x00;
+		VRAM_CSn = 0b1;
+		VRAM_A10 = 0b0;
+
+		any{
+			map_exrom : any{
+				// NSF
+				prg_A<12:8>==0b0_0001 : par{ // $4100
+					prg_Dout = init_rom.dout;
+				}
+			}
+			map_exram : prg_Dout = exram_rdata;
+			map_rom : any{ // IRQ,BRKはPRG-ROMを見る
+				prg_A==0b11111111111_1010 : prg_Dout = 0x20; // NMI
+				prg_A==0b11111111111_1011 : prg_Dout = 0x41; // NMI
+				prg_A==0b11111111111_1100 : prg_Dout = 0x00; // RST
+				prg_A==0b11111111111_1101 : prg_Dout = 0x41; // RST
+				else : prg_Dout = prg_rom_rdata;
+			}
+		}
+
+		IRQn = 0b1;
+
+		f_PAL = f_speed_PAL;
+		
+		usound = 0b00000000000; // <11>
+
+		ssound = 0b00000000000000; // <14s>
+
+		ack = ^attach_stg.do;
+
+		set_ok = set_ok_reg;
+		
+dbg = dbg_reg;
+	}
+
+	instruct attach par{
+		generate attach_stg.do(set_Din);
+	}
+
+	instruct prg_read any{
+		map_exrom : any{
+			// NSF
+			prg_A<12:8>==0b0_0001 : par{ // $4100
+				init_rom.read(prg_A<7:0>);
+			}
+		}
+		map_exram : par{
+			exram_read(prg_A<12:0>);
+		}
+		map_rom : par{
+			// sel badrs<20>; 最大1MBまで
+			any(i=0;i<8;i++){
+				prg_A<14:12>==i : badrs = nsf_bank[i] || prg_A<11:0>;
+			}
+			prg_ram_read(badrs);
+		}
+	}
+
+	instruct prg_write par{
+
+		if(map_exram) exram_write(prg_A<12:0>, prg_Din);
+		
+		// map_exrom(); A_reg<15:13>==0b010 $4000～$5FFF
+
+		// $5FF8 ～ $5FFF バンク切り替え
+		if(map_exrom & /&prg_A<12:3>) any(i=0;i<8;i++){
+			prg_A<2:0>==i : nsf_bank[i] := prg_Din;
+		}
+	}
+
+	instruct ready par{
+		speed_count := 1;
+	}
+
+	instruct tim1MHz if(nmi_on & ^ready){
+// NTSC 16666
+// PAL  20000
+		sel speed_max<16>;
+		if(f_speed_PAL){
+			speed_max = speed_PAL_H || speed_PAL_L;
+		}
+		else{
+			speed_max = speed_NTSC_H || speed_NTSC_L;
+		}
+		if(speed_count==speed_max){
+			NMI_out();
+			speed_count := 1;
+		}
+		else speed_count++;
+	}
+
+	stage attach_stg {
+		reg_wr hA<8>, pBank<8>, pA<20>; // pA<8+12>
+		reg_wr bank_check, recv_ok;
+		reg_wr LoadAdrs_low<8>, LoadAdrs_high<7>, banks<8>;
+		state_name init,head,prgw,rend,oend;
+		first_state init;
+		par{
+			finish;
+		}
+		state init par{
+			hA := 0x00;
+			bank_check := 0;
+			pBank := 0;
+			recv_ok := 0b0;
+			nmi_on := 0;
+			goto head;
+		}
+		state head par{ // 128バイト書き込み
+			any{
+				hA==0x07 : init_rom.write(0x10, set_data-0x01); // 曲指定(UART,SDカード共通)
+				hA==0x08 : LoadAdrs_low  := set_data;
+				hA==0x09 : LoadAdrs_high := set_data<6:0>;
+				hA==0x0A : init_rom.write(0x14, set_data); // InitAdrs
+				hA==0x0B : init_rom.write(0x15, set_data);
+				hA==0x0C : init_rom.write(0x26, set_data); // PlayAdrs
+				hA==0x0D : init_rom.write(0x27, set_data);
+				hA==0x6E : speed_NTSC_L := set_data;
+				hA==0x6F : speed_NTSC_H := set_data;
+				hA==0x70 : nsf_bank_0 := set_data;
+				hA==0x71 : nsf_bank_1 := set_data;
+				hA==0x72 : nsf_bank_2 := set_data;
+				hA==0x73 : nsf_bank_3 := set_data;
+				hA==0x74 : nsf_bank_4 := set_data;
+				hA==0x75 : nsf_bank_5 := set_data;
+				hA==0x76 : nsf_bank_6 := set_data;
+				hA==0x77 : nsf_bank_7 := set_data;
+				hA==0x78 : speed_PAL_L := set_data;
+				hA==0x79 : speed_PAL_H := set_data;
+				hA==0x7A : par{ // PAL速度のNSFがなさそう?2016/10/08
+					f_speed_PAL := set_data<0>;
+					// FamiTrackerで作ったものはLDXが必須
+					init_rom.write(0x12, set_data & 0x01); // LDX 0:NTSC, 1:PAL
+				}
+				hA==0x7B : ext_sound := set_data;
+				hA==0x7E : if(set_data<0>) recv_ok := 0b1; // 予約領域、1ならUARTから転送済み
+				hA==0x7F : banks := set_data; // 独自拡張、UARTからバンク数をセット
+			}
+
+			if(hA<6:3>==0b1110) bank_check := bank_check | /|set_data; // 0x70-0x77
+			if(^bank_check) any(i=0;i<8;i++){ // 0x78-0x7F
+				hA<6:0>==0b1111||i : nsf_bank[i] := 0b00000 || i;
+			}
+
+			hA++;
+			if(/&hA<6:0>){
+				pA := 0b00000 || LoadAdrs_high || LoadAdrs_low;
+				if(recv_ok) goto rend;
+				else goto prgw;
+			}
+		}
+		state prgw par{
+			prg_ram_write(pA, set_data);
+			pA++;
+			// UARTからの読み込み
+			if(pA<11:0>==(LoadAdrs_high<3:0>||LoadAdrs_low)){
+				// +1バイト余分に書き込み
+				// UARTからの転送はbanksにバンク数が入っている
+				if((banks!=0) & (pBank==banks)) goto rend;
+				pBank++;
+			}
+			// SDカードからの読み込みはbanks=0x00
+			if((banks==0x00) & set_eof) goto rend;
+		//	if((banks==0x00) & (pA==0x01FFF)) goto rend; // 8KBテスト用
+			// 1MBサポート(未テスト)
+			if(/&pA) goto rend;
+		}
+		state rend par{
+			set_ok_reg := 0b1;
+			goto oend;
+		}
+		state oend par{
+			set_ok_reg := 0b0;
+			nmi_on := 1;
+			goto init;
+		}
+	}
+
+}

@@ -1,0 +1,23 @@
+
+// RAM
+// 8 bit 32k depth
+
+// 8k <13>
+// 16k <14>
+// 32k <15>
+
+circuit ram_8x32k
+{
+	input adrs<15>, din<8>;
+	output dout<8>;
+	instrin read(adrs);
+	instrin write(adrs, din);
+
+	mem cells[32768]<8>;
+	reg dout_reg<8>;
+
+	instruct read dout_reg := cells[adrs];
+	dout = dout_reg;
+
+	instruct write cells[adrs] := din;
+}

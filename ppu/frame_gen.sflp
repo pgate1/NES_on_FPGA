@@ -1,0 +1,18 @@
+
+circuit frame_gen
+{
+	reg_wr nes_timing<2>;
+	reg_wr hcount<9>;
+	instrout ppu_run, hblank;
+
+	if(nes_timing==3){
+		ppu_run();
+		if(hcount==340){
+			hblank();
+			hcount := 0;
+		}
+		else hcount++;
+	}
+	nes_timing++;
+
+}

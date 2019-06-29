@@ -1,0 +1,52 @@
+
+// VRC6
+
+%i "sq_ch.h"
+%i "saw_ch.h"
+
+circuit vrc6_core
+{
+	input ch<2>, adrs<2>, din<8>;
+	instrin io_write(ch, adrs, din);
+
+	instrin ready, run;
+
+	output sound<7>;
+	reg_wr sound_reg<7>;
+	instrout note_on;
+
+	sq_ch sq0, sq1;
+	saw_ch saw;
+
+	par{
+		sound_reg :=
+		    (0b000||sq0.sound) +
+		    (0b000||sq1.sound) +
+		      (0b0||saw.sound);
+
+		sound = sound_reg;
+	}
+
+	instruct ready par{
+		sq0.ready();
+		sq1.ready();
+		saw.ready();
+	}
+
+	instruct io_write switch(ch){
+		case 0b01: sq0.write(adrs, din); // $9000-2
+		case 0b10: sq1.write(adrs, din); // $A000-2
+		case 0b11: saw.write(adrs, din); // $B000-2
+	}
+
+	// 外部からのmpuクロックで動作
+	instruct run par{
+		sq0.run();
+		sq1.run();
+		saw.run();
+	}
+
+	instruct sq0.note_on note_on();
+	instruct sq1.note_on note_on();
+	instruct saw.note_on note_on();
+}

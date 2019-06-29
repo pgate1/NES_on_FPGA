@@ -1,0 +1,590 @@
+
+/*
+	NES on FPGA feat. DE1
+	NSF Player on FPGA feat. DE1
+	Copyright (c) 2004 pgate1.
+
+	prg : SRAM or SDRAM
+	chr : SRAM
+*/
+
+//%i "../../../DE1/DE1.h"
+%i "../../../DE1/seg7_ctrl.h"
+%i "../../../DE1/sram_ctrl.h"
+%i "../../../DE1/sdram_ctrl.h"
+//%i "../../../DE1/flashmem_ctrl.h"
+%i "../../../DE1/dac_ctrl.h"
+%i "../../../DE1/sdcard_ctrl.h"
+%i "../../../hdl/fat16.h"
+%i "../../../DE1/vjtag_uart.h"
+
+%i "../nes_core.h"
+%i "../mapper/Mapper.h"
+%i "../display.h"
+%i "../../../hdl/pspad_ctrl.h"
+%i "VGA_ctrl.h"
+%i "../../../hdl/chat_mask.h"
+//%i "../../../hdl/uart_ctrl.h"
+%i "../../../hdl/dsdac7.h"
+
+%i "DDS_50to5369318.h"
+
+circuit core
+{
+	input KEY<4>, SW<10>;
+	chat_mask kcmask_0, kcmask_1, kcmask_2, kcmask_3;
+	sela key[4];
+	output LEDR<10>, LEDG<8>;
+	output HEX0<7>, HEX1<7>, HEX2<7>, HEX3<7>;
+	seg7_ctrl seg70, seg71, seg72, seg73;
+	sel seg<16>;
+	input UART_RXD;  // UART Receiver
+	output UART_TXD; // UART Transmitter
+//	uart_ctrl uart;
+//--------------------- SRAM Interface ---------------------
+	output SRAM_CEn, SRAM_OEn, SRAM_WEn;
+	output SRAM_LBn, SRAM_UBn, SRAM_DEn;
+	output SRAM_ADDR<18>;
+	input  SRAM_Din<16>;
+	output SRAM_Dout<16>;
+	sram_ctrl sram; // 参考 adrs<18> data<16>
+//--------------------- SDRAM Interface --------------------
+	output SDRAM_CSn, SDRAM_WEn, SDRAM_DEn;
+	output SDRAM_RASn, SDRAM_CASn;
+	output SDRAM_BA<2>, SDRAM_ADDR<12>;
+	output SDRAM_LDQM, SDRAM_UDQM;
+	input  SDRAM_Din<16>;
+	output SDRAM_Dout<16>;
+	sdram_ctrl sdram; // 参考 bank<2> adrs<20> data<16>
+//--------------------- Flash Interface --------------------
+//	output FLASH_RSTn, FLASH_CEn;
+//	output FLASH_OEn,  FLASH_WEn;
+//	output FLASH_ADDR<22>;
+//	input FLASH_Din<8>;
+//	flashmem_ctrl flash; // 参考 adrs<22> rdata<8>
+//--------------------- SD_Card Interface ------------------
+	output SD_CSn; // SD Card CSn
+	output SD_CLK; // SD Card Clock
+	output SD_CMD; // SD Card Command & Dout
+	input  SD_DAT; // SD Card Data
+	sdcard_ctrl sdcard;
+	fat16 fat;
+//--------------------- VGA --------------------------------
+	output VGA_HS, VGA_VS;
+	output VGA_R<4>, VGA_G<4>, VGA_B<4>;
+	VGA_ctrl vga;
+	reg_wr red_out_reg<4>, grn_out_reg<4>, blu_out_reg<4>;
+	reg_wr clock25M_div;
+	Display dis;
+	reg_ws dis_timing;
+//--------------------- Audio ------------------------
+	input audio_RD;
+	output audio_DATA<32>;//<16>;
+	dac_ctrl dac;
+//--------------------- PS PAD ------------------------
+	output PAD_SEL1n, PAD_SEL2n, PAD_CLK, PAD_CMD;
+	input PAD_ACKn, PAD_DAT;
+	PSPAD_ctrl pad;
+	sel psw_pad<8>;
+//------------------------------------------------------
+
+	reg_ws reset;
+
+	reg_wr prg_read_ok;
+
+	// NES
+	nes_core nes;
+	Mapper cart;
+	reg_wr cnt_1MHz<6>;
+
+	reg_wr file_num<8>;
+
+	vjtag_uart vjtag;
+
+	sel sound_L<16>, sound_R<16>;
+
+	reg_wr note_count<17>;
+	dsdac7 dac_apu, dac_sq1, dac_sq2, dac_tri, dac_noi, dac_dmc;
+	dsdac7 dac_mmc5, dac_n106, dac_fds, dac_vrc6, dac_sn5b, dac_vrc7;
+	reg_wr note_apu<7>, note_sq1<7>, note_sq2<7>, note_tri<7>, note_noi<7>, note_dmc<7>;
+	reg_wr note_mmc5<7>, note_n106<7>, note_fds<7>, note_vrc6<7>, note_sn5b<7>, note_vrc7<7>;
+
+	reg_wr notused;
+	DDS_50to5369318 dds_ntsc;
+
+	stage_name nes_line { task do(); }
+	stage_name clock3580k { task do(); }
+	stage_name clock25M { task do(); }
+	stage_name clk500k { task do(); }
+	stage_name uart2ram { task do(); }
+	stage_name key_seek { task next(); task back(); }
+	stage_name card2ram { task do(); }
+	stage_name vjtag2ram { task do(); }
+
+	if(reset){
+		reset := 0b0;
+		generate clock3580k.do();
+	//	generate clk500k.do();
+		generate clock25M.do();
+		generate card2ram.do();
+		file_num := 0;
+	}
+
+	par(i=0;i<4;i++){
+		kcmask[i].kin = ^KEY<i>; key[i] = kcmask[i].kout;
+	}
+
+	HEX3 = seg73.con(seg<15:12>).oSEG;
+	HEX2 = seg72.con(seg<11: 8>).oSEG;
+	HEX1 = seg71.con(seg< 7: 4>).oSEG;
+	HEX0 = seg70.con(seg< 3: 0>).oSEG;
+
+	SRAM_CEn = sram.CEn;
+	SRAM_OEn = sram.OEn;
+	SRAM_WEn = sram.WEn;
+	SRAM_LBn = sram.LBn;
+	SRAM_UBn = sram.UBn;
+	SRAM_DEn = sram.DEn;
+	SRAM_ADDR = sram.ADDR;
+	sram.Din = SRAM_Din;
+	SRAM_Dout = sram.Dout;
+
+	SDRAM_CSn = sdram.CSn;
+	SDRAM_RASn = sdram.RASn;
+	SDRAM_CASn = sdram.CASn;
+	SDRAM_WEn = sdram.WEn;
+	SDRAM_DEn = sdram.DEn;
+	SDRAM_BA = sdram.BA;
+	SDRAM_ADDR = sdram.A;
+	SDRAM_LDQM = sdram.LDM;
+	SDRAM_UDQM = sdram.HDM;
+	SDRAM_Dout = sdram.Dout;
+	sdram.Din = SDRAM_Din;
+
+	SD_CSn = sdcard.CSn;
+	SD_CLK = sdcard.CLK;
+	SD_CMD = sdcard.CMD;
+	sdcard.DAT = SD_DAT;
+
+	fat.sack = sdcard.ack;
+	fat.sdata = sdcard.rdata;
+
+	PAD_SEL1n = pad.seln;
+	PAD_SEL2n = 0b1;
+	PAD_CLK = pad.clk;
+	PAD_CMD = pad.cmd;
+	pad.data = PAD_DAT;
+
+	vga.vt_su = 1;
+	vga.vt_vu = 31;
+	vga.vt_nu = 49;
+	vga.vt_nd = 497; // nu + 224*2
+	vga.vt_vd = 511; // vu + 480
+	vga.vt_sd = 524 - 1;
+	vga.ht_su = 92;
+	vga.ht_vu = 151;
+	vga.ht_nu = 190 - 2;
+	vga.ht_nd = 702 - 2; // nu + 512
+	vga.ht_vd = 741; // vu + 640 -a
+	vga.ht_sd = 795 - 1;
+	if(vga.win_valid){
+		red_out_reg := dis.r_out || 0b0;
+		grn_out_reg := dis.g_out || 0b0;
+		blu_out_reg := dis.b_out || 0b0;
+	}
+	else{
+		// NES画面外の色（ディスプレイ自動幅調整のため）
+		red_out_reg := 0b0010;
+		grn_out_reg := 0b0010;
+		blu_out_reg := 0b0010;
+	}
+	VGA_HS = vga.hsync;
+	VGA_VS = vga.vsync;
+	VGA_R = red_out_reg & (4#vga.view_valid);
+	VGA_G = grn_out_reg & (4#vga.view_valid);
+	VGA_B = blu_out_reg & (4#vga.view_valid);
+
+	nes.IRQn = cart.IRQn;
+	nes.VRAM_CSn = cart.VRAM_CSn;
+	nes.VRAM_A10 = cart.VRAM_A10;
+	if(^prg_read_ok) nes.ready();
+
+	nes.f_stereo = ^SW<0>;
+	nes.speed = pad.data_ref<2>;
+	nes.stop  = pad.data_ref<3>;
+	nes.f_nsf = cart.f_nsf;
+	if(cart.NMI_out) nes.nsf_NMI();
+
+	if(^prg_read_ok) cart.ready();
+	if(nes.clk_out) cart.Phi();
+
+	if(cnt_1MHz==50){
+		cart.tim1MHz();
+		cnt_1MHz := 1;
+	}
+	else cnt_1MHz++;
+
+	cart.fat_eof = fat.eof;
+
+	// 0～255 → -128～127
+//	dac.data_L = (5#(^nes.volume_L<7>)) || nes.volume_L<6:0> || 0b0000 || 0x0000;
+//	dac.data_R = (5#(^nes.volume_R<7>)) || nes.volume_R<6:0> || 0b0000 || 0x0000;
+	cart.mute = SW<9:3>;
+	cart.nes_sound_L = nes.sound_L;
+	cart.nes_sound_R = nes.sound_R;
+	if(SW<1>){ // 逆位相サラウンド
+		sound_L = 0b0 || cart.sound_L;
+		sound_R = (^(0b0||cart.sound_R)) + 1;
+	}
+	else{
+		sound_L = 0b0 || cart.sound_L;
+		sound_R = 0b0 || cart.sound_R;
+	}
+	dac.data_L = sound_L || 0x0000;
+	dac.data_R = sound_R || 0x0000;
+	dac.RD = audio_RD;
+	audio_DATA = dac.Dout;
+
+	instruct nes.note_sq1 if(^cart.mute<6>){ note_apu := 0b1111111; note_sq1 := 0b1111111; }
+	instruct nes.note_sq2 if(^cart.mute<6>){ note_apu := 0b1111111; note_sq2 := 0b1111111; }
+	instruct nes.note_tri if(^cart.mute<6>){ note_apu := 0b1111111; note_tri := 0b1111111; }
+	instruct nes.note_noi if(^cart.mute<6>){ note_apu := 0b1111111; note_noi := 0b1111111; }
+	instruct nes.note_dmc if(^cart.mute<6>){ note_apu := 0b1111111; note_dmc := 0b1111111; }
+	instruct cart.note_mmc5 if(^cart.mute<5>) note_mmc5 := 0b1111111;
+	instruct cart.note_n106 if(^cart.mute<4>) note_n106 := 0b1111111;
+	instruct cart.note_fds  if(^cart.mute<3>) note_fds := 0b1111111;
+	instruct cart.note_vrc6 if(^cart.mute<2>) note_vrc6 := 0b1111111;
+	instruct cart.note_sn5b if(^cart.mute<1>) note_sn5b := 0b1111111;
+	instruct cart.note_vrc7 if(^cart.mute<0>) note_vrc7 := 0b1111111;
+
+	note_count++;
+	if(/&note_count){
+		if(note_apu!=0) note_apu--;
+		if(note_sq1!=0) note_sq1--;
+		if(note_sq2!=0) note_sq2--;
+		if(note_tri!=0) note_tri--;
+		if(note_noi!=0) note_noi--;
+		if(note_dmc!=0) note_dmc--;
+		if(note_mmc5!=0) note_mmc5--;
+		if(note_n106!=0) note_n106--;
+		if(note_fds!=0) note_fds--;
+		if(note_vrc6!=0) note_vrc6--;
+		if(note_sn5b!=0) note_sn5b--;
+		if(note_vrc7!=0) note_vrc7--;
+	}
+	dac_apu.DACin = note_apu;
+	dac_sq1.DACin = note_sq1;
+	dac_sq2.DACin = note_sq2;
+	dac_tri.DACin = note_tri;
+	dac_noi.DACin = note_noi;
+	dac_dmc.DACin = note_dmc;
+	dac_mmc5.DACin = note_mmc5;
+	dac_n106.DACin = note_n106;
+	dac_fds.DACin = note_fds;
+	dac_vrc6.DACin = note_vrc6;
+	dac_sn5b.DACin = note_sn5b;
+	dac_vrc7.DACin = note_vrc7;
+
+	// NESPAD : 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
+/*
+	nes.pad1P = (pad.data_cur<5> || pad.data_cur<7>
+	          || pad.data_cur<6> || pad.data_cur<4>
+	          || pad.data_cur<3> || pad.data_cur<0>
+	          || (pad.data_ref<6> | pad.data_ref<4>)
+	          || (pad.data_ref<7> | pad.data_ref<5>) )
+				| psw_pad;
+*/
+	nes.pad1P = psw_pad;
+	//プッシュスイッチでマリオ
+	psw_pad = /*key_2*/SW<2> || key_3 || 0b0 || SW<1> || SW<0> || SW<3> || 0b0 || key_1;
+
+	nes.pad2P = 0x00;
+/*
+	nes.pad2P = (pad2.data_cur<5> || pad2.data_cur<7>
+	          || pad2.data_cur<6> || pad2.data_cur<4>
+	          || pad2.data_cur<3> || pad2.data_cur<0>
+	          || (pad2.data_ref<6> | pad2.data_ref<4>)
+	          || (pad2.data_ref<7> | pad2.data_ref<5>) );
+*/
+	// ソフトリセット
+	if(pad.data_cur<0>&pad.data_cur<3>&/&pad.data_ref<3:2>){
+		nes.soft_reset();
+		cart.soft_reset();
+	}
+
+	// cur : 左|下|右|上|ｽﾀｰﾄ|1|1|ｾﾚｸﾄ
+	// ref : □|×|○|△|R1|L1|R2|L2
+	LEDR = 
+	//	(0b00 || (pad.data_cur | pad.data_ref | pad.data_cur | pad.data_ref))
+	//	| (nes.dbg || fat.err || ^fat.ack)
+		 (dac_apu.DACout || dac_mmc5.DACout || dac_n106.DACout || dac_fds.DACout
+			|| dac_vrc6.DACout || dac_sn5b.DACout || dac_vrc7.DACout || 0b000)
+		;
+
+	LEDG = dac_sq1.DACout || dac_sq2.DACout || dac_tri.DACout || dac_noi.DACout || dac_dmc.DACout || 0b000; //nes.ir_out;
+
+	alt{
+	//	/|halt_code : seg = 0x00 || halt_code;
+		/|nes.halt_out : seg = 0x00 || nes.halt_out;
+		else : seg = nes.pc_out;
+	}
+//	seg = cart.dbg;
+
+	cart.ROM_SELn = nes.ROM_SELn;
+	cart.prg_A = nes.A;
+	instruct nes.read_prg par{
+/*
+		// マリオブロックをどつく
+		if((nes.A==0b011_1100_1110_1101) | (nes.A==0b101110011110010)){
+			pad.vibrate(0x08);
+		}
+		// マリオ踏みつけ
+		if(nes.A==0b101100101101001){
+			pad.vibrate(0x06);
+		}
+*/
+		cart.prg_read();
+	}
+	nes.prg_din = cart.prg_Dout;
+
+	cart.prg_Din = nes.prg_dout;
+	instruct nes.write_prg par{
+		cart.prg_write();
+	}
+
+	cart.chr_A = nes.PA;
+	instruct nes.read_chr par{
+		cart.chr_read();
+	}
+	nes.chr_din = cart.chr_Dout;
+
+	cart.chr_Din = nes.chr_dout;
+	instruct nes.write_chr par{
+		cart.chr_write();
+	}
+
+	instruct cart.prg_ram_read par{
+		// sdramが1MWord品なのでそれより大きいNSFは未サポート
+		sdram.read(0b00||cart.prg_ram_adrs<19:0>);
+	}
+	cart.prg_rom_rdata = sdram.rdata<7:0>; // prg_rdata; sram.rdata<7:0>;
+
+	instruct cart.prg_ram_write par{
+		sdram.write(0b00||cart.prg_ram_adrs<19:0>, 0x00||cart.prg_ram_wdata);
+	}
+
+	instruct cart.chr_ram_read par{
+		sram.read(cart.chr_ram_adrs);
+	}
+	cart.chr_ram_rdata = sram.rdata<7:0>;
+
+	instruct cart.chr_ram_write par{
+		sram.write(cart.chr_ram_adrs, 0x00||cart.chr_ram_wdata);
+	}
+
+	instruct nes.NES_VIDEO_enable par{
+		dis.write(nes.video);
+	}
+
+	instruct vga.dis par{
+		if(dis_timing) dis.read();
+		dis_timing := ^dis_timing;
+	}
+
+	instruct vga.nes_hsync par{
+		dis.bank_change();
+		generate nes_line.do();
+	}
+
+	instruct vga.nes_vsync par{
+		pad.key_get();
+	}
+
+	instruct dds_ntsc.run par{ // 5.369318MHz
+		if(prg_read_ok /*& ^cart.f_nsf_PAL*/){
+			nes.run();
+		}
+	}
+
+	instruct nes.clk_out par{
+		cart.clock1789k();
+	}
+
+	if(cart.f_nsf) alt{
+		key_2 | pad.data_ref<0> : par{ // 進む
+			generate key_seek.next();
+		}
+		key_1 | pad.data_ref<1> : par{ // 戻る
+			generate key_seek.back();
+		}
+	}
+
+	instruct fat.sread par{
+		sdcard.read(fat.sadrs);
+	}
+
+	instruct vjtag.recv par{
+		generate vjtag2ram.do();
+	}
+
+	stage clock3580k {
+		reg_wr clock3580k_count<4>;
+		par{
+			if(clock3580k_count==14){
+				if(prg_read_ok){
+					cart.clock3580k();
+				}
+				clock3580k_count := 1;
+			}
+			else clock3580k_count++;
+			if(0b0) finish; // 未使用
+		}
+	}
+
+	//	PSPADプロトコルは250kHzなので倍の500kHzで
+	//	立下りと立ち上がりを生成
+	stage clk500k {
+		reg_wr count500k<7>;
+		par{
+			if(count500k==100){
+				pad.clock_500k();
+				count500k := 1;
+			}
+			else count500k++;
+			if(0b0) finish; // 未使用
+		}
+	}
+
+	stage nes_line {
+		reg_wr pixel_count<9>;
+		par{
+			if(dds_ntsc.run){
+
+				nes.draw();
+
+				if(pixel_count==341){
+					nes.hblank();
+					pixel_count := 1;
+					finish;
+				}
+				else pixel_count++;
+
+				if(pixel_count==260){ // 256 + 8 ?
+					cart.hblank();
+				}
+			}
+		}
+	}
+
+	stage clock25M {
+		par{
+			clock25M_div := ^clock25M_div;
+			if(clock25M_div /*& prg_read_ok*/) vga.run();
+			if(0b0) finish; // 未使用
+		}
+	}
+
+	stage key_seek {
+		state_name iwait,st1,st2;
+		first_state iwait;
+		state iwait par{
+			prg_read_ok := 0b0;
+			goto st1;
+		}
+		state st1 par{
+			any{
+				key_seek.next : file_num++;
+				key_seek.back : file_num--;
+			}
+			generate card2ram.do();
+			goto st2;
+		}
+		state st2 if(^card2ram.do){
+			if((key_seek.next & (^key_2) & (^pad.data_ref<0>))
+			 | (key_seek.back & (^key_1) & (^pad.data_ref<1>))){
+				goto iwait;
+				finish;
+			}
+		}
+	}
+
+	stage card2ram {
+		state_name rbegin,fatr,head,reopen,maps,rend;
+		first_state rbegin;
+		state rbegin if(fat.ack){
+			prg_read_ok := 0b0;
+			fat.fopen(file_num);
+			goto fatr;
+		}
+		state fatr if(fat.ack){
+			fat.read();
+			goto head;
+		}
+		state head if(fat.ack){
+			cart.set_head(fat.fdata);
+			fat.read();
+			if(cart.head_err){
+				any{
+					key_seek.next : file_num++;
+					key_seek.back : file_num--;
+					else : file_num++;
+				}
+				goto rbegin;
+			}
+			if(cart.head_ok) goto reopen;
+		}
+		state reopen if(fat.ack){
+			nes.mem_clear();
+			fat.fopen(file_num);
+			goto maps;
+		}
+		state maps if(fat.ack & cart.ack & sram.ack & sdram.ack){
+			//if(^fat.eof) 
+			 fat.read();
+			cart.attach(fat.fdata);
+			if(cart.set_ok) goto rend;
+		}
+		state rend if(sdram.ack){
+			nes.soft_reset();
+			cart.soft_reset();
+			prg_read_ok := 0b1;
+			goto rbegin;
+			finish;
+		}
+	}
+
+	stage vjtag2ram {
+		state_name rbegin,maps,rend;
+		first_state rbegin;
+		finish;
+		state rbegin par{
+			prg_read_ok := 0b0;
+			nes.mem_clear();
+			cart.set_map(vjtag.recv_data); // Mapper ID
+			goto maps;
+		}
+		state maps par{
+			cart.attach(vjtag.recv_data);
+			if(cart.set_ok) goto rend;
+		}
+		state rend par{
+			nes.soft_reset();
+			cart.soft_reset();
+			prg_read_ok := 0b1;
+		//	generate prg_set_wait.do();
+			goto rbegin;
+		}
+	}
+/*
+	stage prg_set_wait {
+		reg_wr pwait<4>;
+		par{
+			pwait++;
+			if(/&pwait){
+				prg_read_ok := 0b1;
+				finish;
+			}
+		}
+	}
+*/
+}

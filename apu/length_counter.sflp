@@ -1,0 +1,53 @@
+
+// Length Counter
+// 長さカウンタ
+// 矩形波、三角波、ノイズチャンネルで使用
+
+// clock 120 Hz
+circuit length_counter
+{
+	input len_max<8>;
+	output f_length;
+	input f_ctrl, halt_in;
+	instrin exc, set(len_max), halt(halt_in), enable(f_ctrl);
+
+	reg_ws reset;
+	reg_wr length_count<8>;
+	reg_wr f_halt;
+
+	par{
+/*
+		if(reset){
+			reset := 0b0;
+			length_count := 0x01;
+		}
+*/
+		f_length = /|length_count;
+	}
+
+	instruct set par{
+	//	if(^f_halt)
+	//	if(^(enable & (f_ctrl==0b0)))
+		length_count := len_max;
+	}
+
+	instruct enable par{
+		if(f_ctrl){
+		}
+		else{
+			length_count := 0x00;
+		}
+	}
+
+	instruct halt par{
+		f_halt := halt_in;
+	}
+
+	// 120Hz
+	instruct exc par{ // mpu.run + 1clk
+		if((^f_halt) & f_length & (^set) & (^enable)){
+			length_count--;
+		}
+	}
+
+}

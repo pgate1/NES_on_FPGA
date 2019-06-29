@@ -1,0 +1,151 @@
+
+// APU Noize Channel
+
+%i "envelope_generator.h"
+%i "timer_unit.h"
+%i "length_counter.h"
+
+circuit noise_ch
+{
+	instrin write(adrs, din);
+	input adrs<2>, din<8>;
+
+	instrin ctrl(f_ctrl);
+	input f_ctrl;
+	instrin run;
+	instrin EnvelopeGenerate, LengthCount;
+
+	input length_max<8>;
+/*
+	output time_idx<4>;
+	input time_max<11>;
+	instrout time_read;
+*/
+	output f_length, volume<4>;
+	instrout note_on, tim_out;
+
+	reg_ws reset;
+
+	reg_wr enable;
+	reg_wr f_random_mode;
+
+	envelope_generator env;
+
+	timer_unit timer;
+//	reg period<11>;
+
+	reg_wr period_index<4>;
+	sel time_idx<4>;
+	sel time_max<12>;
+	instrself time_table(time_idx);
+
+	// Random Generator
+	reg_wr random_data<15>;
+
+	length_counter len;
+
+	stage_name length_set { task do(); }
+	stage_name RandomGenerator { task do(); }
+//	stage_name time_read_wait { task do(); }
+
+	if(reset){
+		reset := 0b0;
+		random_data := 0b000000000000001;
+	}
+
+	timer.period = time_table(period_index).time_max;
+	f_length = len.f_length;
+
+	volume = env.count & (4#((^random_data<0>) & f_length));
+
+	instruct write par{
+		switch(adrs){
+			case 0b00 : par{	// $400C Noise Ctrl
+				env.set(din<5:0>);
+				len.halt(din<5>);
+			}
+			case 0b01 : ; // $400D 未使用
+			case 0b10 : par{	// 0x400E Noise Freq 1
+				f_random_mode := din<7>;
+				period_index := din<3:0>;
+			//	time_read(din<3:0>);
+			//	generate time_read_wait.do();
+			}
+			case 0b11 : par{	// 0x400F Noise Freq 2
+				env.halt();
+			//	len.set(length_max);
+				// length_romから次のクロックで取得できる
+				generate length_set.do();
+				note_on();
+			}
+		}
+	}
+
+	// 外部からのmpuクロックで動作
+	instruct run timer.exc();
+	instruct EnvelopeGenerate env.exc();
+
+	instruct ctrl par{
+		if(f_ctrl){
+			enable := 0b1;
+		}
+		else{
+			enable := 0b0;
+		}
+		len.enable(f_ctrl);
+	}
+
+	instruct LengthCount len.exc();
+
+	instruct time_table switch(time_idx){
+		case 0x0: time_max = 0x004;
+		case 0x1: time_max = 0x008;
+		case 0x2: time_max = 0x010;
+		case 0x3: time_max = 0x020;
+		case 0x4: time_max = 0x040;
+		case 0x5: time_max = 0x060;
+		case 0x6: time_max = 0x080;
+		case 0x7: time_max = 0x0A0;
+		case 0x8: time_max = 0x0CA;
+		case 0x9: time_max = 0x0FE;
+		case 0xA: time_max = 0x17C;
+		case 0xB: time_max = 0x1FC;
+		case 0xC: time_max = 0x2FA;
+		case 0xD: time_max = 0x3F8;
+		case 0xE: time_max = 0x7F2;
+		case 0xF: time_max = 0xFE4;
+	}
+
+	instruct timer.clock_out par{
+		if(enable){
+			generate RandomGenerator.do();
+		}
+	}
+
+/*
+	stage time_read_wait {
+		par{
+			finish;
+	//		period := time_max;
+		}
+	}
+*/
+	stage length_set {
+		par{
+			len.set(length_max);
+			finish;
+		}
+	}
+
+	stage RandomGenerator {
+		par{
+			sel random_xin;
+			if(f_random_mode) random_xin = random_data<6>;
+			else              random_xin = random_data<1>;
+			random_data := (random_xin @ random_data<0>) || random_data<14:1>;
+			if(random_data<1:0>==0b11) tim_out();
+			finish;
+		}
+	}
+
+}

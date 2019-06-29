@@ -1,0 +1,273 @@
+
+// APU DMC (Delta Modulation Channel)
+// スパルタンXなど
+
+%i "timer_unit.h"
+
+circuit delta_modulation_ch
+{
+	instrin write(adrs, din);
+	input adrs<2>, din<8>;
+
+	instrin ctrl(f_ctrl);
+	input f_ctrl;
+	reg_wr enable;
+	instrin run;
+
+	instrin dma_clock, clear_irq;
+	instrout read(dma_adrs);
+	output dma_adrs<16>;
+	instrin read_ack;
+	input dma_din<8>;
+
+	output f_rest, IRQ;
+	output volume<7>;
+
+	reg_wr f_loop;
+	reg_wr start_adrs<8>, data_length<8>;
+	reg_wr period_index<4>;
+	reg_wr f_interrupt_enable;
+	reg_ws f_silence;
+
+	// Sample Buffer
+	reg_wr buf_read_on;
+//	reg_wr buf_data<8>;
+	reg_wr dma_adrs_reg<16>;
+	reg_wr rest_count<12>;
+	reg_wr irq_reg;
+	instrself irq_setting;
+
+	timer_unit timer;
+	sel time_idx<4>, time_max<9>;
+	instrself time_table(time_idx);
+
+	// Out Unit
+	reg_wr out_data<8>, delta_count<6>, delta_count0;
+	reg_wr shift_count<3>;
+
+	instrself dma_adrs_length_set;
+
+	instrout note_on;
+	reg_wr old_delta<7>;
+
+	input d7bit;
+output dbg<8>;
+
+	stage_name buf_stg { task do(); }
+	stage_name buf2_stg { task do(); }
+	stage_name dma_read { task do(); }
+	stage_name read_wait { task do(); }
+	stage_name delta_buf_stg { task do(); }
+	stage_name delta_stg { task do(); }
+
+	par{
+		timer.period = 0b000 || time_table(period_index).time_max;
+
+		f_rest = /|rest_count;
+		IRQ = irq_reg;
+
+		volume = delta_count || delta_count0;
+dbg = rest_count<7:0>;
+	}
+
+	instruct write par{ // mpu.run+2clk
+		switch(adrs){
+			case 0b00 : par{	// DMC Ctrl 1
+				f_interrupt_enable := din<7>;
+				if((din<7>==0b0) & ^irq_setting) irq_reg := 0b0;
+				f_loop := din<6>;
+				period_index := din<3:0>;
+			}
+			case 0b01 : par{	// DMC Ctrl 2
+// DPCMは鳴らす前に$4011に初期値を書き込んでリセットしてやる必要がある。
+				delta_count := din<6:1>;
+				delta_count0 := din<0> & d7bit;
+				if(din<6:0>!=old_delta) note_on();
+				old_delta := din<6:0>;
+			}
+			case 0b10 : par{	// DMC Address
+				start_adrs := din;
+			}
+			case 0b11 : par{	// DMC Data length
+				data_length := din;
+				if(/|din) note_on();
+			}
+		}
+	}
+
+	instruct dma_adrs_length_set par{
+		// 再生開始アドレスは64byte境界
+		dma_adrs_reg := 0b11 || start_adrs || 0b000000;
+
+		// 再生サイズは16byte境界+1
+		rest_count := data_length || 0b0001;
+
+		shift_count := 7; // 7ok 6,5umm 4,3,2,1,0ng
+		f_silence := 0b1;
+		buf_read_on := 0b0;
+
+	//	timer.rst(); // これがあると少し音程が低くなるようだ
+	}
+
+	instruct ctrl par{ // write 0x4015 // mpu.run + 2clk
+		//if(^irq_setting) 
+
+		if(f_ctrl){
+			if(^enable){//^f_rest){
+				dma_adrs_length_set();
+				enable := 0b1;
+		irq_reg := 0b0;
+
+			}
+		}
+		else{
+			enable := 0b0;
+			f_silence := 0b1;
+			buf_read_on := 0b0;
+			rest_count := 0;
+		//	delta_count := 0; // test
+		}
+	}
+
+	instruct clear_irq par{ // mpu.run + 2clk
+		//if(^irq_setting) 
+		irq_reg := 0b0;
+	}
+
+	instruct time_table switch(time_idx){
+		case 0x0: time_max = 428; // 0x1AC;
+		case 0x1: time_max = 380; // 0x17C;
+		case 0x2: time_max = 340; // 0x154;
+		case 0x3: time_max = 320; // 0x140;
+		case 0x4: time_max = 286; // 0x11E;
+		case 0x5: time_max = 254; // 0x0FE;
+		case 0x6: time_max = 226; // 0x0E2;
+		case 0x7: time_max = 214; // 0x0D6;
+		case 0x8: time_max = 190; // 0x0BE;
+		case 0x9: time_max = 160; // 0x0A0;
+		case 0xA: time_max = 142; // 0x08E;
+		case 0xB: time_max = 128; // 0x080;
+		case 0xC: time_max = 106; // 0x06A;
+		case 0xD: time_max =  84; // 0x054;
+		case 0xE: time_max =  72; // 0x048;
+		case 0xF: time_max =  54; // 0x036;
+	}
+
+	// 外部からのmpuクロックで動作 1.789MHz
+	instruct run timer.exc();
+
+	instruct dma_clock par{ // mpu.run
+		if(buf_read_on){
+			if(enable) generate buf_stg.do();
+			buf_read_on := 0b0;
+		}
+	}
+
+	instruct timer.clock_out par{ // mpu.run + 1clk
+		if(enable) generate delta_buf_stg.do();
+	}
+
+	stage buf_stg { // mpu.run + 1clk
+		par{
+		//	generate buf2_stg.do();
+			generate dma_read.do();
+			finish;
+		}
+	}
+
+	stage buf2_stg { // mpu.run + 2clk
+		par{
+			if(^(ctrl & ^f_ctrl)) generate dma_read.do();
+			finish;
+		}
+	}
+
+	stage dma_read { // mpu.run + 2clk
+		state_name st1, st2;
+		first_state st1;
+		state st1 if(^(ctrl & ^f_ctrl)){
+			if(f_rest){
+				if(rest_count!=1){
+					read(dma_adrs_reg);
+					dma_adrs_reg++;
+					generate read_wait.do();
+				}
+				else{ // rest_count==1
+					f_silence := 0b1;
+				}
+				rest_count--;
+			//	buf_read_on := 0b1;
+				goto st2;
+			}
+			else{
+				f_silence := 0b1;
+				enable := 0b0;
+				finish;
+			}
+		}
+		else finish;
+		state st2 if(^read_wait.do){ // mpu.run + 3clk
+			if(rest_count==0){
+				if(f_loop){
+					dma_adrs_length_set();
+					irq_reg := 0b0;
+				}
+				else{
+				//	if(^(ctrl & f_ctrl)){
+						enable := 0b0;
+						if(f_interrupt_enable){
+							irq_reg := 0b1;
+						//	irq_setting();
+						}
+				//	}
+				}
+			}
+			goto st1;
+			finish;
+		}
+	}
+
+	stage read_wait {
+		if(read_ack){
+			out_data := dma_din;
+			f_silence := 0b0;
+			finish;
+		}
+	}
+
+	stage delta_buf_stg { // mpu.run + 2clk
+		par{
+			generate delta_stg.do();
+			finish;
+		}
+	}
+
+	stage delta_stg { // mpu.run + 3clk
+		par{
+
+			if(^f_silence){
+				if(out_data<0>){
+					if(delta_count!=0b111111){
+						delta_count++;
+					}
+				}
+				else{
+					if(delta_count!=0b000000){
+						delta_count--;
+					}
+				}
+			}
+
+			out_data := 0b0 || out_data<7:1>;
+			if((^dma_adrs_length_set)){
+				shift_count--;
+				if(shift_count==0){
+					buf_read_on := 0b1;
+				}
+			}
+
+			finish;
+		}
+	}
+
+}

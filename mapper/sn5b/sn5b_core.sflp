@@ -1,0 +1,159 @@
+
+// SUNSOFT 5B
+
+%i "sn_tone_gen.h"
+%i "sn_noise_gen.h"
+%i "sn_envelope_gen.h"
+
+circuit sn5b_core
+{
+	input adrs, din<8>;
+	instrin io_write(adrs, din);
+
+	instrin ready, run;
+
+	reg_wr adrs_reg<4>;
+
+	output sound<9>;
+	reg_wr sound_reg<9>;
+	instrout note_on;
+
+	sn_tone_gen tone_0, tone_1, tone_2;
+	sn_noise_gen noise;
+
+	reg_wr enable<6>;
+	sel tone_en<3>, noise_en<3>;
+
+	mem tone_mix[3];
+//	reg_wr mixs;
+	mem volume[3]<5>;
+	sela amp_mix[3]<4>;
+
+	reg_wr idsel<2>;
+	sel vol_idx<4>, vol_val<8>;
+	mem amp_vol[3]<7>;
+	sela out_vol[3]<7>;
+
+	sn_envelope_gen env;
+
+	par{
+		tone_en = enable<2:0>;
+		noise_en = enable<5:3>;
+/*
+		any{
+			(mixs==0b0) & tone_en<0>  : tone_mix[0] := tone_0.sound;
+			(mixs==0b1) & noise_en<0> : tone_mix[0] := noise.sound;
+		}
+//tone_mix[0] := (tone_en<0> & tone_0.sound) | (noise_en<0> & noise.sound);
+		any{
+			(mixs==0b0) & tone_en<1>  : tone_mix[1] := tone_1.sound;
+			(mixs==0b1) & noise_en<1> : tone_mix[1] := noise.sound;
+		}
+		any{
+			(mixs==0b0) & tone_en<2>  : tone_mix[2] := tone_2.sound;
+			(mixs==0b1) & noise_en<2> : tone_mix[2] := noise.sound;
+		}
+		mixs := ^mixs;
+*/
+		par(i=0;i<3;i++){
+			tone_mix[i] := (tone_en<i> & tone[i].sound) | (noise_en<i> & noise.sound);
+		}
+
+//tone_mix[0] := (tone_en<0> & tone_0.sound) | (noise_en<0> & noise.sound);
+
+		par(i=0;i<3;i++){
+			if(volume[i]<4>) amp_mix[i] = env.dout; else amp_mix[i] = volume[i]<3:0>;
+		}
+
+		switch(vol_idx){
+			case 0x0: vol_val = 0x00;
+			case 0x1: vol_val = 0x01;
+			case 0x2: vol_val = 0x01;
+			case 0x3: vol_val = 0x02;
+			case 0x4: vol_val = 0x02;
+			case 0x5: vol_val = 0x04;
+			case 0x6: vol_val = 0x05;
+			case 0x7: vol_val = 0x08;
+			case 0x8: vol_val = 0x0B;
+			case 0x9: vol_val = 0x10;
+			case 0xA: vol_val = 0x16;
+			case 0xB: vol_val = 0x20;
+			case 0xC: vol_val = 0x2D;
+			case 0xD: vol_val = 0x40;
+			case 0xE: vol_val = 0x5A;
+			case 0xF: vol_val = 0x7F;
+		}
+
+		any(i=0;i<3;i++){
+			idsel==i : par{ vol_idx = (4#tone_mix[i]) & amp_mix[i]; amp_vol[i] := vol_val<6:0>; }
+		}
+		if(idsel==2) idsel := 0;
+		else idsel++;
+
+		// トーンとノイズの両方が有効の時、ボリュームは半分に(無理矢理)
+		par(i=0;i<3;i++){
+			if(tone_en<i> & noise_en<i>) out_vol[i] = amp_vol[i]>>1; else out_vol[i] = amp_vol[i];
+		}
+
+		// <7> * 3 = <9>
+		sound_reg :=
+			(0b00 || out_vol_0) +
+			(0b00 || out_vol_1) +
+			(0b00 || out_vol_2);
+
+		sound = sound_reg;
+	}
+
+	instruct ready par{
+		enable := 0b000000;
+		volume[0] := 0;
+		volume[1] := 0;
+		volume[2] := 0;
+		amp_vol[0] := 0;
+		amp_vol[1] := 0;
+		amp_vol[2] := 0;
+//		tone_0.ready();
+//		tone_1.ready();
+//		tone_2.ready();
+//		noise.ready();
+	}
+
+	instruct io_write par{
+		if(adrs==0b0){ // $C000 アドレスポート
+			adrs_reg := din<3:0>;
+		}
+		else switch(adrs_reg){ // $E000 データポート
+			case 0x0: tone_0.write(0b0, din);
+			case 0x1: tone_0.write(0b1, din);
+			case 0x2: tone_1.write(0b0, din);
+			case 0x3: tone_1.write(0b1, din);
+			case 0x4: tone_2.write(0b0, din);
+			case 0x5: tone_2.write(0b1, din);
+			case 0x6: noise.write(din);
+			case 0x7: enable := ^din<5:0>;
+			case 0x8: volume[0] := din<4:0>;
+			case 0x9: volume[1] := din<4:0>;
+			case 0xA: volume[2] := din<4:0>;
+			case 0xB: env.write(0b00, din);
+			case 0xC: env.write(0b01, din);
+			case 0xD: env.write(0b10, din);
+		//	case 0xE: ; // port A 未実装
+		//	case 0xF: ; // port B 未実装
+		}
+	}
+
+	// 外部からのmpuクロックで動作
+	instruct run par{
+		tone_0.run();
+		tone_1.run();
+		tone_2.run();
+		noise.run();
+		env.run();
+	}
+
+	instruct tone_0.note_on note_on();
+	instruct tone_1.note_on note_on();
+	instruct tone_2.note_on note_on();
+	instruct noise.note_on note_on();
+
+}

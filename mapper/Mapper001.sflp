@@ -1,0 +1,242 @@
+
+/*
+	Mapper 001
+	MMC1
+		PRG-ROM 16KB banks 2 4 8 16 32 max 512KB
+		CHR-ROM 8KB banks 0(RAM) 1 2 4 (8) 16 max 128KB
+		CHR-RAM
+*/
+
+circuit Mapper001
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read, chr_write; // RDn, WEn
+	input chr_A<14>, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+//	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+
+	instrout exram_read(exram_adrs);
+	output exram_adrs<13>; // EX_RAM  8KB
+	output exram_wdata<8>;
+	instrout exram_write(exram_adrs, exram_wdata);
+	input exram_rdata<8>;
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<19>; // PRG_ROM max 512KB
+//	output prg_ram_wdata<8>;
+//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_rom_rdata<8>;
+
+	instrout chr_ram_read(chr_ram_adrs);
+	output chr_ram_adrs<17>; // CHR_ROM max 128KB
+	output chr_ram_wdata<8>;
+	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	input chr_ram_rdata<8>;
+
+//	instrin ready;
+	instrin init();
+
+//output dbg;
+
+	input n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
+	reg_wr fMirroringType_reg;
+
+	reg_wr set_adrs<2>, w_count<3>, w_bits<4>, set_bits<5>;
+	reg_wr regs0<5>, regs1<5>, regs2<5>, regs3<5>;
+	reg_wr fHVmrroring;
+	reg_ws fPrgRomHLSwitch, fPrgRomSwitch;
+	reg_wr fChrRomSwitch;
+
+	reg_wr prg_bank0<4>, prg_bank1<4>, prg_last_bank<4>;
+	reg_wr prg_bank_base;
+	reg_wr chr_bank0<5>, chr_bank1<5>;
+
+	instrself map_rom, map_exram;
+
+	stage_name setting { task do(set_bits); }
+
+	par{
+
+		if(ROM_SELn==0b0){ // $8000-$FFFF
+			map_rom();
+		}
+		else any{
+		//	prg_A<14:13>==0b10 : map_exrom(); // $4020-$5FFF
+			prg_A<14:13>==0b11 : map_exram(); // $6000-7FFFF
+		}
+
+		any{
+			map_rom : prg_Dout = prg_rom_rdata;
+			map_exram : prg_Dout = exram_rdata;
+		}
+
+		VRAM_CSn = ^chr_A<13>;
+
+		if(regs0<1>){
+			if(fMirroringType_reg){
+				// 水平スクロールタイプ
+				VRAM_A10 = chr_A<10>;
+			}
+			else{
+				// 垂直スクロールタイプ
+				VRAM_A10 = chr_A<11>;
+			}
+		}
+		else VRAM_A10 = regs0<0>;
+
+		chr_Dout = chr_ram_rdata;
+
+		IRQn = 0b1;
+
+		usound = // <11>
+		   0b00000000000;
+
+		ssound = // <14s>
+		   0b00000000000000;
+
+//dbg = /|prg_bank0 | setting.do;
+	}
+
+	instruct init par{
+		regs0 := 0b01100;
+		regs1 := 0b00000;
+		regs2 := 0b00000;
+		regs3 := 0b00000;
+		prg_bank_base := 0b0;
+		prg_bank0 := 0b0000;
+		prg_bank1     := (n16kRomBanks - 0b000001)<3:0>;
+		prg_last_bank := (n16kRomBanks - 0b000001)<3:0>;
+		chr_bank0 := 0b00000;
+		chr_bank1 := 0b00001;
+		fMirroringType_reg := fMirroringType;
+	}
+
+	instruct prg_read any{
+		map_rom : par{
+			if(prg_A<14>==0b0){
+				// prg_bank_base<1> + prg_bank<4> + prg_A<14> = <19>
+				prg_ram_read(prg_bank_base || prg_bank0 || prg_A<13:0>);
+			}
+			else{
+				prg_ram_read(prg_bank_base || prg_bank1 || prg_A<13:0>);
+			}
+		}
+		map_exram : exram_read(prg_A<12:0>);
+	}
+
+	instruct prg_write any{
+		map_rom : par{
+			set_adrs := prg_A<14:13>;
+			alt{
+				prg_Din<7> : par{ // reset
+					regs0 := regs0 | 0b01100;
+					w_bits := 0b0000;
+					w_count := 0b000;
+				}
+				prg_A<14:13>!=set_adrs : par{
+					w_bits := prg_Din<0> || 0b000;
+					w_count := 0b001;
+				}
+				w_count<2> : par{
+					w_bits := 0b0000;
+					w_count := 0b000;
+					generate setting.do(prg_Din<0> || w_bits);
+				}
+				else : par{
+					w_bits := prg_Din<0> || w_bits<3:1>;
+					w_count++;
+				}
+			}
+		}
+		map_exram : exram_write(prg_A<12:0>, prg_Din);
+	}
+
+	instruct chr_read par{
+		if(chr_A<13>==0b0) any{
+			// chr_bank<5> + chr_A<12> = <16>
+			chr_A<12>==0b0 : chr_ram_read(chr_bank0 || chr_A<11:0>);
+			chr_A<12>==0b1 : chr_ram_read(chr_bank1 || chr_A<11:0>);
+		}
+	}
+
+	instruct chr_write par{
+		if(chr_A<13>==0b0) any{
+			chr_A<12>==0b0 : chr_ram_write(chr_bank0 || chr_A<11:0>, chr_Din);
+			chr_A<12>==0b1 : chr_ram_write(chr_bank1 || chr_A<11:0>, chr_Din);
+		}
+	}
+
+	stage setting {
+		par{
+		switch(set_adrs){
+			case 0b00: par{
+				regs0 := set_bits;
+				fHVmrroring := set_bits<1>;
+				if(set_bits<1>){ // fHVmrroring
+					fMirroringType_reg := ^set_bits<0>;
+				}
+				fPrgRomHLSwitch := set_bits<2>;
+				fPrgRomSwitch := set_bits<3>;
+				fChrRomSwitch := set_bits<4>;
+			}
+			case 0b01: par{
+				regs1 := set_bits;
+				prg_bank_base := set_bits<4>; // for 512KB rom
+				if(n8kVRomBanks!=0){ // これがないとDQ4で画面表示がバグる
+					// Select VROM bank at $0000
+					if(regs0<4>){ // swap 4KB
+						chr_bank0 := 0b0 || set_bits<3:0>;
+					//	chr_bank1 := regs2; 調査中
+					}
+					else{ // swap 8KB
+						chr_bank0 := set_bits<3:0> || 0b0;
+						chr_bank1 := set_bits<3:0> || 0b1;
+					}
+				}
+			}
+			case 0b10: par{
+				regs2 := set_bits;
+			//	if(n8kVRomBanks!=0){
+					if(regs0<4>){ // Select VROM bank at $1000
+					//	chr_bank0 := regs1; 調査中
+						chr_bank1 := 0b0 || set_bits<3:0>;
+					}
+				//	else 調査中
+			//	}
+			}
+			case 0b11: par{
+				regs3 := set_bits;
+				if(regs0<3>){ // Swap 16K of ROM based on bit 2
+					// FFでok
+					if(regs0<2>){ // Swap ROM bank at $8000
+						prg_bank0 := set_bits<3:0>;
+						prg_bank1 := prg_last_bank;
+					}
+					else{ // Swap ROM bank at $C000
+						prg_bank0 := 0b0000;
+						prg_bank1 := set_bits<3:0>;
+					}
+				}
+				else{ // Swap 32K of ROM at $8000
+// 調査中
+					prg_bank0 := set_bits<3:0>;
+					prg_bank1 := set_bits<3:0> + 0b0001;
+				}
+			}
+		}
+		finish;
+		}
+	}
+
+}

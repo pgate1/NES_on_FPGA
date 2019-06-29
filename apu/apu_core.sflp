@@ -1,0 +1,321 @@
+
+// Audio Processing Unit
+
+%i "square_ch.h"
+%i "triangle_ch.h"
+%i "noise_ch.h"
+%i "delta_modulation_ch.h"
+%i "delay_unit.h"
+
+//%i "length_rom.h"
+
+declare length_rom
+{
+	input adrs<5>;
+	instrin read;
+	output dout<8>;
+	instr_arg read(adrs);
+}
+
+circuit apu_core
+{
+	instrin write_io(adrs, din), read_io(adrs);
+	input adrs<5>, din<8>;
+	output dout<8>;
+
+	instrin run, ready;
+	output IRQn;
+
+	// DMC DMA
+	instrin dmc_clock;
+	instrout dmc_read;
+	output dmc_adrs<16>;
+	instrin dmc_read_ack;
+
+	input f_stereo;
+	output volume_L<8>, volume_R<8>;
+
+	instrout sq1_note_on, sq2_note_on, tri_note_on, noi_note_on, dmc_note_on;
+	instrout sq1_tim, sq2_tim, tri_tim, noi_tim;
+
+	reg_ws reset;
+	reg_wr dout_reg<8>;
+
+	// Length Counter Table
+	length_rom len_max;
+//	sel len_max<8>;
+//	reg_wr len_max_dout<8>;
+
+	// Frame Sequencer
+	reg_wr frame_ls<5>;
+	reg_wr f_frame_sequencer_mode;
+	reg_ws f_frame_IRQ_disable;
+	reg_ws frame_IRQn_reg;
+
+	square_ch sq1, sq2;
+	triangle_ch trig;
+	noise_ch noise;
+	delta_modulation_ch dmc;
+
+	delay_unit delay_30, delay_60;
+
+	reg_wr f_nsf_frame_IRQ_disable;
+
+	input dpcm_7bit;
+output dbg<8>;
+
+	stage_name FrameSequencer { task do(); }
+
+	if(reset){
+		reset := 0b0;
+		frame_ls := 0b00001;
+	}
+
+	sq1.ch_slct = 0b0;
+	sq2.ch_slct = 0b1;
+
+	if(read_io) dout_reg := dout;
+	else dout = dout_reg;
+
+	// lengthデータはsq1,sq2,tri,noiseで全て
+	// adrs<1:0>==0b11 din<7:3> となっている
+	if(write_io & ((adrs<4>||adrs<1:0>)==0b011)){
+	//	len_max.read(0b000||din<7:3>);
+		len_max.read(din<7:3>);
+	}
+	sq1.length_max   = len_max.dout;
+	sq2.length_max   = len_max.dout;
+	trig.length_max  = len_max.dout;
+	noise.length_max = len_max.dout;
+/*
+	switch(0b000||din<7:3>){
+		case 0x00 : len_max = 0x0A;
+		case 0x01 : len_max = 0xFE;
+		case 0x02 : len_max = 0x14;
+		case 0x03 : len_max = 0x02;
+		case 0x04 : len_max = 0x28;
+		case 0x05 : len_max = 0x04;
+		case 0x06 : len_max = 0x50;
+		case 0x07 : len_max = 0x06;
+		case 0x08 : len_max = 0xA0;
+		case 0x09 : len_max = 0x08;
+		case 0x0A : len_max = 0x3C;
+		case 0x0B : len_max = 0x0A;
+		case 0x0C : len_max = 0x0E;
+		case 0x0D : len_max = 0x0C;
+		case 0x0E : len_max = 0x1A;
+		case 0x0F : len_max = 0x0E;
+		case 0x10 : len_max = 0x0C;
+		case 0x11 : len_max = 0x10;
+		case 0x12 : len_max = 0x18;
+		case 0x13 : len_max = 0x12;
+		case 0x14 : len_max = 0x30;
+		case 0x15 : len_max = 0x14;
+		case 0x16 : len_max = 0x60;
+		case 0x17 : len_max = 0x16;
+		case 0x18 : len_max = 0xC0;
+		case 0x19 : len_max = 0x18;
+		case 0x1A : len_max = 0x48;
+		case 0x1B : len_max = 0x1A;
+		case 0x1C : len_max = 0x10;
+		case 0x1D : len_max = 0x1C;
+		case 0x1E : len_max = 0x20;
+		case 0x1F : len_max = 0x1E;
+	}
+	if(write_io & ((adrs<4>||adrs<1:0>)==0b011)){
+		len_max_dout := len_max;
+	}
+	sq1.length_max   = len_max_dout;
+	sq2.length_max   = len_max_dout;
+	trig.length_max  = len_max_dout;
+	noise.length_max = len_max_dout;
+*/
+	dmc_adrs = dmc.dma_adrs;
+	dmc.dma_din = din;
+
+	IRQn = frame_IRQn_reg & (^dmc.IRQ); // DMC IRQはいまいちサポートしきれてない
+
+	// Stereo
+	if(f_stereo){
+		delay_30.delay = 0b011111111;
+		delay_60.delay = 0b101111111;
+	}
+	else{
+		delay_30.delay = 0b000000000;
+		delay_60.delay = 0b000000000;
+	}
+
+	dmc.d7bit = dpcm_7bit;
+
+	volume_L =
+		  (0b000 || sq1.volume || 0b0)
+		+ (0b000 || delay_60.dout<7:4> || 0b0)
+		+ (0b000 || trig.volume || 0b0)
+		+ (0b000 || delay_30.dout<7:4> || 0b0)
+		+ (0b0 || dmc.volume)
+		;
+	volume_R =
+		  (0b000 || delay_60.dout<3:0> || 0b0)
+		+ (0b000 || sq2.volume || 0b0)
+		+ (0b000 || delay_30.dout<3:0> || 0b0)
+		+ (0b000 || noise.volume || 0b0)
+		+ (0b0 || dmc.volume)
+		;
+
+dbg = dmc.dbg;
+
+	instruct ready par{
+		sq1.ctrl(0b0);
+		sq2.ctrl(0b0);
+		trig.ctrl(0b0);
+		noise.ctrl(0b0);
+		dmc.ctrl(0b0);
+		dmc.clear_irq();
+
+		sq1.init();
+		sq2.init();
+
+		f_frame_IRQ_disable := 0b1;
+		frame_IRQn_reg := 0b1;
+		f_nsf_frame_IRQ_disable := 0b0;
+	}
+
+	instruct read_io par{
+		switch(adrs){
+			case 0b10101 : par{ // 0x4015
+				dout = dmc.IRQ
+					|| (^frame_IRQn_reg)
+					|| 0b0
+					|| dmc.f_rest
+					|| noise.f_length
+					|| trig.f_length
+					|| sq2.f_length
+					|| sq1.f_length;
+				frame_IRQn_reg := 0b1; // フレームIRQクリア
+				dmc.clear_irq();
+			}
+			default : par{
+/*
+初代mckドライバには、一部コマンドを使用した場合にWrite専用レジスタ($4003,$4007)を
+Readしてしまう問題がある。解決方法としてはppmckの最新版を使用すること。
+ここではRead値として0x40(アドレス上位バイト)を返している(aibomb.nsfで確認済み)。
+*/
+				dout = 0x40;
+			}
+		}
+	}
+
+	instruct write_io par{
+		any{
+			adrs<4:2>==0b000 : sq1.write(adrs<1:0>, din);
+			adrs<4:2>==0b001 : sq2.write(adrs<1:0>, din);
+			adrs<4:2>==0b010 : trig.write(adrs<1:0>, din);
+			adrs<4:2>==0b011 : noise.write(adrs<1:0>, din);
+			adrs<4:2>==0b100 : dmc.write(adrs<1:0>, din);
+			// $4014 DMA
+			adrs==0b10101 : par{ // $4015 Sound Ctrl
+				sq1.ctrl(din<0>);
+				sq2.ctrl(din<1>);
+				trig.ctrl(din<2>);
+				noise.ctrl(din<3>);
+				dmc.ctrl(din<4>);
+			}
+			// $4016 Pad
+			adrs==0b10111 : par{ // $4017
+				f_frame_sequencer_mode := din<7>;
+				if(^f_nsf_frame_IRQ_disable) f_frame_IRQ_disable := din<6>;
+				if(din<6>) frame_IRQn_reg := 0b1; // フレームIRQクリア
+				frame_ls := 0b00001;
+			}
+			// $4018 NSF2 IRQ拡張予定?
+			// $4019 NSF2 IRQ拡張予定?
+			adrs==0b11010 : par{ // $401A nsf独自拡張
+				f_nsf_frame_IRQ_disable := din<7>;
+			}
+		}
+	}
+
+	// 外部からのmpuクロックで動作
+	instruct run par{
+		generate FrameSequencer.do();
+		sq1.run();
+		sq2.run();
+		trig.run();
+		noise.run();
+		dmc.run();
+
+		delay_60.write(sq2.volume || sq1.volume);
+		delay_30.write(noise.volume || trig.volume);
+	}
+
+	instruct dmc_clock dmc.dma_clock();
+	instruct dmc.read dmc_read(); // instrout
+	instruct dmc_read_ack dmc.read_ack();
+
+/*
+	instruct noise.time_read par{
+		roms.read();
+	}
+*/
+
+	instruct sq1.note_on sq1_note_on();
+	instruct sq2.note_on sq2_note_on();
+	instruct trig.note_on tri_note_on();
+	instruct noise.note_on noi_note_on();
+	instruct dmc.note_on dmc_note_on();
+
+	instruct sq1.tim_out sq1_tim();
+	instruct sq2.tim_out sq2_tim();
+	instruct trig.tim_out tri_tim();
+	instruct noise.tim_out noi_tim();
+
+	stage FrameSequencer { // mpu.run + 1clk
+		reg_wr frame_div<13>;
+		par{
+			finish;
+			if(frame_div!=0){
+				frame_div--;
+			}
+			else{
+				frame_div := 7456;	// 7457-1
+				if(f_frame_sequencer_mode){	// 5-step
+					if(frame_ls<4>==0){	// 192Hz
+						sq1.EnvelopeGenerate();
+						sq2.EnvelopeGenerate();
+						trig.LinearCount();
+						noise.EnvelopeGenerate();
+					}
+					if(frame_ls<0> | frame_ls<2>){ // 96Hz
+						sq1.LengthCount();
+						sq2.LengthCount();
+						sq1.Sweep();
+						sq2.Sweep();
+						trig.LengthCount();
+						noise.LengthCount();
+					}
+					frame_ls := frame_ls<3:0> || frame_ls<4>;
+				}
+				else{ // 4-step
+					// 240Hz
+					sq1.EnvelopeGenerate();
+					sq2.EnvelopeGenerate();
+					trig.LinearCount();
+					noise.EnvelopeGenerate();
+					if(frame_ls<1> | frame_ls<3>){ // 120Hz
+						sq1.LengthCount();
+						sq2.LengthCount();
+						sq1.Sweep();
+						sq2.Sweep();
+						trig.LengthCount();
+						noise.LengthCount();
+					}
+					if(frame_ls<3> & (^f_frame_IRQ_disable)){ // 60Hz
+						frame_IRQn_reg := 0b0;
+					}
+					frame_ls := 0b0 || frame_ls<2:0> || frame_ls<3>;
+				}
+			}
+		}
+	}
+
+}

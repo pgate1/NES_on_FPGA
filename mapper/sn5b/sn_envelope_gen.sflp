@@ -1,0 +1,65 @@
+
+circuit sn_envelope_gen
+{
+	instrin write(adrs, din);
+	input adrs<2>, din<8>;
+	instrin run;
+
+	output dout<4>;
+
+	reg_wr period_high<8>, period_low<8>;
+	reg_wr pattern<4>;
+
+	// Sequencer
+	reg_wr gain<4>;
+
+	stage_name Divider { task do(); }
+	stage_name Sequencer { task do(); }
+
+	par{
+		dout = 0b0000;//gain;
+	}
+
+//	instruct ready par{
+//	}
+
+	instruct write switch(adrs){
+		case 0b00: par{
+			period_low := din;
+		}
+		case 0b01: par{
+			period_high := din;
+		}
+		case 0b10: par{
+			pattern := din<3:0>;
+		}
+	}
+
+	instruct run par{
+		generate Divider.do();
+	}
+
+	stage Divider {
+		reg_wr period<16>;
+		par{
+			if(period!=0) period--;
+			else{
+				period := period_high || period_low;
+				generate Sequencer.do();
+			}
+			finish;
+		}
+	}
+
+	stage Sequencer {
+		reg_wr seq_count<8>;
+		par{
+			if(/&seq_count){
+				gain++;
+			}
+			seq_count++;
+			finish;
+		}
+	}
+
+}

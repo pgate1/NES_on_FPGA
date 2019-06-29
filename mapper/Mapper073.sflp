@@ -1,0 +1,182 @@
+
+/*
+	Mapper 073
+	沙羅曼蛇
+		PRG-ROM 16KB × 8
+		CHR-RAM 8KB
+*/
+
+circuit Mapper073
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read, chr_write; // RDn, WEn
+	input chr_A<14>, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+
+	instrout exram_read(exram_adrs);
+	output exram_adrs<13>; // EX_RAM  8KB
+	output exram_wdata<8>;
+	instrout exram_write(exram_adrs, exram_wdata);
+	input exram_rdata<8>;
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<17>; // PRG_ROM 128KBまで
+//	output prg_ram_wdata<8>;
+//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_rom_rdata<8>;
+
+	instrout chr_ram_read(chr_ram_adrs);
+	output chr_ram_adrs<13>; // CHR_RAM 8KB
+	output chr_ram_wdata<8>;
+	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	input chr_ram_rdata<8>;
+
+	instrin init;//, hblank;
+
+	input fMirroringType;
+
+	reg_wr prg_bank<3>;
+
+	instrself map_rom, map_exram;
+	reg_ws IRQn_reg;
+
+	reg_wr irq_enable;
+	reg_wr irq_counter_HH<4>, irq_counter_HL<4>;
+	reg_wr irq_counter_LH<4>, irq_counter_LL<4>;
+
+	par{
+		if(ROM_SELn==0b0){
+			map_rom();
+		}
+		else any{
+		//	prg_A<14:13>==0b10 : map_exrom();
+			prg_A<14:13>==0b11 : map_exram();
+		}
+
+		any{
+			map_rom : prg_Dout = prg_rom_rdata;
+			map_exram : prg_Dout = exram_rdata;
+		}
+
+		// A<13>==1のときVRAM
+		VRAM_CSn = ^chr_A<13>;
+
+		if(fMirroringType){
+			// 水平スクロールタイプ
+			VRAM_A10 = chr_A<10>;
+		}
+		else{
+			// 垂直スクロールタイプ
+			VRAM_A10 = chr_A<11>;
+		}
+
+		chr_Dout = chr_ram_rdata;
+
+		IRQn = IRQn_reg;
+
+		usound = // <11>
+		   0b00000000000;
+
+		ssound = // <14s>
+		   0b00000000000000;
+
+	}
+
+	instruct init par{
+		prg_bank := 0;
+		irq_counter_HH := 0;
+		irq_counter_HL := 0;
+		irq_counter_LH := 0;
+		irq_counter_LL := 0;
+		irq_enable := 0;
+	}
+
+	instruct prg_read any{
+		map_rom : par{
+			if(prg_A<14>==0b0) prg_ram_read(prg_bank || prg_A<13:0>);
+			else               prg_ram_read(0b111 || prg_A<13:0>);
+		}
+		map_exram : exram_read(prg_A<12:0>);
+	}
+
+	instruct prg_write any{
+		map_rom : switch(prg_A<14:12>){
+			case 0b000: irq_counter_LL := prg_Din<3:0>;
+			case 0b001: irq_counter_LH := prg_Din<3:0>;
+			case 0b010: irq_counter_HL := prg_Din<3:0>;
+			case 0b011: irq_counter_HH := prg_Din<3:0>;
+			case 0b100: par{ irq_enable := prg_Din<1>; IRQn_reg := 0b1; }
+			case 0b101: IRQn_reg := 0b1;
+			case 0b110: ;
+			case 0b111: prg_bank := prg_Din<2:0>;
+		}
+		map_exram : exram_write(prg_A<12:0>, prg_Din);
+	}
+
+	instruct chr_read par{
+		if(chr_A<13>==0b0){
+			chr_ram_read(chr_A<12:0>);
+		}
+	}
+
+	instruct chr_write par{
+		if(chr_A<13>==0b0){
+			chr_ram_write(chr_A<12:0>, chr_Din);
+		}
+	}
+
+	instruct Phi par{
+		if(irq_enable){
+			sel irq_counter_s<17>;
+			irq_counter_s = (0b0 ||irq_counter_HH || irq_counter_HL
+				|| irq_counter_LH || irq_counter_LL) + (0b0||0x0001); // +1
+			if(irq_counter_s<16>){ // irq_counter > 0x0FFFF
+				irq_counter_HH := 0x0;
+				irq_counter_HL := 0x0;
+				irq_enable := 0;
+				IRQn_reg := 0b0;
+			}
+			else{
+				irq_counter_HH := irq_counter_s<15:12>;
+				irq_counter_HL := irq_counter_s<11:8>;
+				irq_counter_LH := irq_counter_s<7:4>;
+				irq_counter_LL := irq_counter_s<3:0>;
+			}
+		}
+	}
+
+/*
+	instruct hblank par{
+		sel irq_counter_s<17>;
+		if(irq_enable){
+			irq_counter_s = (0b0 ||irq_counter_HH || irq_counter_HL
+				|| irq_counter_LH || irq_counter_LL) + (0b0||0x0072); // +114
+			if(irq_counter_s<16>){ // irq_counter >= 0x0FFFF
+				irq_counter_HH := 0x0;
+				irq_counter_HL := 0x0;
+				irq_enable := 0;
+				IRQn_reg := 0b0;
+			}
+			else{
+				irq_counter_HH := irq_counter_s<15:12>;
+				irq_counter_HL := irq_counter_s<11:8>;
+				irq_counter_LH := irq_counter_s<7:4>;
+				irq_counter_LL := irq_counter_s<3:0>;
+			}
+		}
+	}
+*/
+
+}

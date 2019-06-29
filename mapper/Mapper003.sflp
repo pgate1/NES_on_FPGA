@@ -1,0 +1,95 @@
+
+/*
+	Mapper 003
+	CHR bank
+		PRG-ROM 32KB
+		CHR-ROM 8KB banks 1 2 4 (8 16)
+*/
+
+circuit Mapper003
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read;//, chr_write; // RDn, WEn
+	input chr_A<14>;//, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+//	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<15>; // PRG_ROM max 32KB
+//	output prg_ram_wdata<8>;
+//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_rom_rdata<8>;
+
+	instrout chr_ram_read(chr_ram_adrs);
+	output chr_ram_adrs<15>; // CHR_ROM max 128KB
+//	output chr_ram_wdata<8>;
+//	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	input chr_ram_rdata<8>;
+
+	instrin init;
+	input fMirroringType;
+
+	reg_wr chr_bank<2>;
+
+	par{
+
+		prg_Dout = prg_rom_rdata;
+
+		VRAM_CSn = ^chr_A<13>;
+
+		if(fMirroringType==0b1){
+			// 水平スクロールタイプ
+			VRAM_A10 = chr_A<10>;
+		}
+		else{
+			// 垂直スクロールタイプ
+			VRAM_A10 = chr_A<11>;
+		}
+
+		chr_Dout = chr_ram_rdata;
+
+		IRQn = 0b1;
+
+		usound = // <11>
+		   0b00000000000;
+
+		ssound = // <14s>
+		   0b00000000000000;
+
+	}
+
+	instruct init par{
+		chr_bank := 0b00;
+	}
+
+	instruct prg_read par{
+		if(ROM_SELn==0b0){
+			prg_ram_read(prg_A<14:0>);
+		}
+	}
+
+	instruct prg_write par{
+		if(ROM_SELn==0b0){
+			chr_bank := prg_Din<1:0>;
+		}
+	}
+
+	instruct chr_read par{
+		if(chr_A<13>==0b0){
+			// chr_bank<2> + chr_A<13> = <15>
+			chr_ram_read(chr_bank || chr_A<12:0>);
+		}
+	}
+
+}

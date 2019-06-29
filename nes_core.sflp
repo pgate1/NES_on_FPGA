@@ -1,0 +1,640 @@
+
+// Nintendo Entertainment System core
+
+%i "mpu/mpu6502.h"
+%i "ppu/ppu_core.h"
+%i "apu/apu_core.h"
+%i "mem/ram_8x2k.h"
+
+circuit nes_core
+{
+	// PRG-ROM EXT-ROM EXT-RAM
+	output A<15>, ROM_SELn, RW, prg_RW, Phi2;
+	reg_wr A_reg<16>, Phi2_reg;
+	reg_ws RW_reg, prg_RW_reg;
+	input IRQn;
+	input prg_din<8>;
+	reg_wr prg_din_reg<8>;
+	output prg_dout<8>;
+
+	// CHR-ROM
+	output PA<14>, WEn, RDn, chr_RW;
+	reg_wr PA_reg<14>;
+	reg_ws WEn_reg, RDn_reg, chr_RW_reg;
+
+	input VRAM_CSn, VRAM_A10;
+	input chr_din<8>;
+	reg_wr chr_din_reg<8>;
+	output chr_dout<8>;
+
+	input pad1P<8>, pad2P<8>;
+	input f_stereo;
+
+	instrin soft_reset, mem_clear, ready;
+	instrin run, draw, hblank;
+	instrout clk_out;
+
+	// Mapper用
+	instrout read_prg, write_prg;
+	instrout read_chr, write_chr;
+
+	// VIDEO
+	output video<6>;
+	instrout NES_VIDEO_enable;
+
+	output sound_L<8>, sound_R<8>;
+	instrout note_sq1, note_sq2, note_tri, note_noi, note_dmc;
+	instrout tim_sq1, tim_sq2, tim_tri, tim_noi;
+
+	mpu6502 mpu;
+	ppu_core ppu;
+	apu_core apu;
+	ram_8x2k vmem, wmem;
+	instrout mem_cleaned;
+
+	reg_ws reset;
+	reg_wr mpu_timing<3>;
+	reg_wr io_reg<8>;
+	reg_wr pad1_data<8>, pad2_data<8>;
+	instrself map_wmem, map_ppu, map_nesrom, map_apu;
+
+	reg_wr mpu_dout_reg<8>, ppu_dout_reg<8>;
+	reg_wr prg_count<5>, chr_count<4>;
+
+	// DMA
+	reg_wr f_dma, dma_low<8>, dma_data<8>;
+	reg_wr f_apu_dmc, apu_dmc_adrs<16>;
+
+	reg_wr sp_flag;
+	reg_wr pre_nmi;
+	reg_wr notused;
+
+	// NSF拡張
+	input f_nsf;
+	instrin nsf_NMI;
+	reg_wr nsf_nmi_reg;
+
+	instrself halt(h_code);
+	sel h_code<8>;
+	reg_wr halt_code<8>;
+	output halt_out<8>;
+
+	// Debug
+output ir_out<8>, pc_out<16>, ir_sync;
+//	instrout trace_ir;
+	input speed, stop;
+output dbg<16>;
+
+	stage_name mpu_read { task do(A_reg); }
+	stage_name io_read_wait { task do(); }
+	stage_name prg_read_stg { task do(); }
+	stage_name mpu_write { task do(A_reg, mpu_dout_reg); }
+	stage_name prg_write_stg { task do(); }
+	stage_name vram_read_stg { task do(); }
+	stage_name chr_read_stg { task do(PA_reg); }
+	stage_name vram_write_stg { task do(); }
+	stage_name chr_write_stg { task do(PA_reg, ppu_dout_reg); }
+	stage_name phi2_tim { task do(); }
+	stage_name dma_run { task do(); }
+	stage_name dma_read_wait { task do(); }
+	stage_name apu_dmc_read { task do(); }
+	stage_name apu_dmc_read_wait { task do(); }
+	stage_name mem_clear_stg { task do(); }
+
+	if(reset){
+		reset := 0b0;
+		mpu_timing := 0b001;
+	}
+
+	any{
+		A_reg<15:13>==0b000 : par{ // 0x0000-0x07FF WRAM
+			map_wmem();
+			mpu.din = wmem.dout;
+		}
+		A_reg<15:13>==0b001 : par{ // 0x2000-0x2007 PPU
+			map_ppu();
+			mpu.din = ppu.Dout;
+		}
+		A_reg<15:13>==0b010 : any{
+			A_reg<12:5>==0b00000000 : par{ // 0x4000-0x401F APU, PAD
+				map_apu();
+				mpu.din = io_reg;
+			}
+			else : par{ // 0x4020-0x5FFF ExROM
+				map_nesrom();
+				mpu.din = prg_din_reg;
+			}
+		}
+		A_reg<15:13>==0b011 : par{ // 0x6000-0x7FFF ExRAM
+			map_nesrom();
+			mpu.din = prg_din_reg;
+		}
+		A_reg<15> : par{ // 0x8000-0xFFFF ROM
+			map_nesrom();
+			mpu.din = prg_din_reg;
+		}
+	}
+
+	A = A_reg<14:0>;
+	ROM_SELn = ^A_reg<15>;
+	RW = RW_reg;
+	prg_RW = prg_RW_reg;
+	prg_dout = mpu_dout_reg;
+	Phi2 = Phi2_reg;
+
+	PA = PA_reg;//ppu.PA;
+	WEn = WEn_reg;
+	RDn = RDn_reg;
+	chr_RW = chr_RW_reg;
+	if(VRAM_CSn==0b0) ppu.PDin = vmem.dout;
+	else ppu.PDin = chr_din_reg;
+	chr_dout = ppu_dout_reg;//ppu.PDout;
+
+	apu.f_stereo = f_stereo;
+	apu.dpcm_7bit = 0b1;
+	sound_L = apu.volume_L;
+	sound_R = apu.volume_R;
+
+	if(f_nsf){ // 60Hz以外のNSF用拡張
+/*
+		// 捕まえきれない DMC IRQで遅くなる
+		if(nsf_NMI & ppu.f_nmi_en){
+			if(sp_flag & (^stop) & (^ready)) mpu.NMI();
+			if(speed) sp_flag := ^sp_flag;
+		}
+*/
+		if(nsf_NMI){
+			if(sp_flag & (^stop) & (^ready)) nsf_nmi_reg := 0b1;
+			if(speed) sp_flag := ^sp_flag;
+		}
+		if(nsf_nmi_reg & ppu.f_nmi_en){
+			if(apu.IRQn==0b1) mpu.NMI();
+			nsf_nmi_reg := 0b0;
+		}
+	}
+	else{
+		// 立上りのみ
+		pre_nmi := ppu.o_NMI;
+		if((pre_nmi||ppu.o_NMI)==0b01){
+			if(sp_flag & (^stop) & (^ready)) mpu.NMI();
+			if(speed) sp_flag := ^sp_flag;
+		}
+	}
+
+	mpu.IRQn = IRQn & apu.IRQn;
+
+	// debug
+	ir_out = mpu.ir_out;
+	pc_out = mpu.pc_out;
+	ir_sync = mpu.ir_sync;
+
+	if(^speed) sp_flag := 0b1;
+
+//dbg = mpu.dbg || apu.dbg;
+
+/*
+	instruct mpu.trace_ir par{
+		trace_ir();
+	}
+*/
+	instruct halt halt_code := h_code;
+	halt_out = halt_code | ppu.halt_out;
+
+	instruct soft_reset par{
+		mpu.soft_reset();
+		apu.ready();
+		ppu.soft_reset();
+		f_dma := 0b0;
+		f_apu_dmc := 0b0;
+	//	pre_nmi := 0b0;
+		nsf_nmi_reg := 0b0;
+	}
+
+	instruct mem_clear par{
+	//	ppu.init(); // for spr_ram clear
+		generate mem_clear_stg.do();
+	}
+
+	instruct run if(^/|halt_out){
+//if(mem_clear_stg.do) halt(0x6);
+
+		if(mpu_timing<0>){ // 約1.789MHz
+			alt{
+				f_apu_dmc : generate apu_dmc_read.do();
+				f_dma     : generate dma_run.do();
+				else      : mpu.run();
+			}
+
+			apu.run();
+			apu.dmc_clock();
+
+			clk_out();
+			generate phi2_tim.do();
+		}
+		mpu_timing := mpu_timing<1:0> || mpu_timing<2>;
+	}
+
+	instruct mpu.read_req par{
+		generate mpu_read.do(mpu.A);
+	}
+
+	instruct mpu.write_req par{
+		generate mpu_write.do(mpu.A, mpu.dout);
+	}
+
+	// PPU 外部入力
+	instruct draw ppu.draw();
+	instruct hblank ppu.hblank();
+
+	instruct ppu.read_req par{
+		generate vram_read_stg.do();
+		generate chr_read_stg.do(ppu.PA);
+//if(chr_read_stg.do) halt(0x12);
+//if(chr_write_stg.do) halt(0x13);
+	}
+
+	instruct ppu.write_req par{
+		generate vram_write_stg.do();
+		generate chr_write_stg.do(ppu.PA, ppu.PDout);
+//if(chr_read_stg.do) halt(0x22);
+//if(chr_write_stg.do) halt(0x23);
+	}
+
+	// PPU 外部出力
+	instruct ppu.PPU_VIDEO_enable par{
+		video = ppu.VIDEO;
+		NES_VIDEO_enable();
+	}
+
+	instruct apu.dmc_read par{
+		apu_dmc_adrs := apu.dmc_adrs;
+		f_apu_dmc := 0b1;
+	}
+
+	instruct apu.sq1_note_on note_sq1();
+	instruct apu.sq2_note_on note_sq2();
+	instruct apu.tri_note_on note_tri();
+	instruct apu.noi_note_on note_noi();
+	instruct apu.dmc_note_on note_dmc();
+
+	instruct apu.sq1_tim tim_sq1();
+	instruct apu.sq2_tim tim_sq2();
+	instruct apu.tri_tim tim_tri();
+	instruct apu.noi_tim tim_noi();
+
+	stage mpu_read {
+		par{
+			any{
+				map_wmem : par{
+					wmem.read(A_reg<10:0>);
+					generate io_read_wait.do();
+				}
+				map_ppu : par{
+					ppu.read_io(A_reg<2:0>);
+					generate io_read_wait.do();
+				}
+				map_apu : par{
+					any{
+						A_reg<4:0>==0b10110 : par{ // 0x4016
+							io_reg := 0b0000000 || pad1_data<0>;
+							pad1_data := 0b0 || pad1_data<7:1>;
+						}
+						A_reg<4:0>==0b10111 : par{ // 0x4017
+							io_reg := 0b0000000 || pad2_data<0>;
+							pad2_data := 0b0 || pad2_data<7:1>;
+						}
+						else : io_reg := apu.read_io(A_reg<4:0>).dout;
+					}
+					generate io_read_wait.do();
+				}
+				map_nesrom : par{
+				//	generate prg_read_stg.do();
+					read_prg();
+				}
+			}
+			generate prg_read_stg.do();
+			finish;
+		}
+	}
+
+	stage io_read_wait {
+		par{
+			mpu.read_ack();
+			finish;
+		}
+	}
+
+	// 50MHz/1.789772.5 = 27.9
+// OEnを使うとchrにノイズがちょっとのる?
+	stage prg_read_stg {
+		state_name st1,st1w,st2,st3,st4;
+		first_state st1;
+		state st1 par{
+			prg_RW_reg := 0b1;
+			prg_count := 0;
+			goto st1w;
+		}
+		state st1w par{
+			RW_reg := 0b1;
+			goto st2;
+		}
+		state st2 par{
+			prg_count++;
+// 16 ok
+			if(prg_count==16) goto st3;
+		}
+		state st3 par{
+			prg_din_reg := prg_din;
+			goto st4;
+		}
+		state st4 par{
+			mpu.read_ack();
+			goto st1;
+			finish;
+		}
+	}
+
+	stage mpu_write {
+		par{
+			any{
+				map_wmem : par{
+					wmem.write(A_reg<10:0>, mpu_dout_reg);
+				}
+				map_ppu : par{
+					ppu.write_io(A_reg<2:0>, mpu_dout_reg);
+				}
+				map_apu : any{
+					A_reg<4:0>==0b10100 : par{ // 0x4014
+						f_dma := 0b1;
+					}
+					A_reg<4:0>==0b10110 : par{ // 0x4016
+						pad1_data := pad1P;
+						pad2_data := pad2P;
+					}
+					else : apu.write_io(A_reg<4:0>, mpu_dout_reg);
+				}
+				map_nesrom : par{
+					// ミネルバトンサーガ用(カセットへのセーブしないように)
+					//if(A_reg<15:4>==0x7EF) 
+				//	generate prg_write_stg.do();
+					write_prg();
+				}
+			}
+			generate prg_write_stg.do();
+			finish;
+		}
+	}
+
+// レベルセンシティブではなさそう
+// RWの立ち上がりっぽい
+	stage prg_write_stg {
+		state_name st1,st1w,st1ww,st2,st3,st4;
+		first_state st1;
+		state st1 par{
+			prg_RW_reg := 0b0;
+			prg_count := 0;
+			goto st1w;
+		}
+		state st1w par{
+			prg_count++;
+// 3 ok
+// 4 ok
+			if(prg_count==3) goto st1ww;
+		}
+		state st1ww par{
+			RW_reg := 0b0;
+			prg_count := 0;
+			goto st2;
+		}
+		state st2 par{
+			prg_count++;
+// 12 ok
+// 14 ok
+// 22 NG
+			if(prg_count==14) goto st3;
+		}
+		state st3 par{
+			RW_reg := 0b1;
+			goto st4;
+		}
+		state st4 par{
+			prg_RW_reg := 0b1;
+			goto st1;
+			finish;
+		}
+	}
+
+//	DMA中にAPUのDMC読み込みの可能性があるためread_waitが必要。
+//	DMAは524サイクル必要。
+	stage dma_run {
+		state_name st_pre, st_read, st_write;
+		first_state st_pre;
+		finish;
+		state st_pre par{
+			dma_low := 0x00;
+			ppu.write_io(0b011, 0x00); // $2003
+			goto st_read;
+		}
+		state st_read par{
+			generate mpu_read.do(mpu_dout_reg || dma_low);
+			generate dma_read_wait.do();
+			dma_low++;
+			goto st_write;
+		}
+		state st_write par{
+			ppu.write_io(0b100, dma_data); // $2004
+			if(/|dma_low) goto st_read;
+			else{
+				f_dma := 0b0;
+				goto st_pre;
+			}
+		}
+	}
+
+	// DMA中にDMC_readが入る可能性があるのでこれが必要
+	stage dma_read_wait {
+		if(mpu.read_ack){
+			dma_data := mpu.din;
+			finish;
+		}
+	}
+
+	// リターンバック 7 + 10.5 = 17.5ns
+	stage vram_read_stg {
+		state_name st1,st2,st3,st4;
+		first_state st1;
+		state st1 goto st2;	// リターンバック信号待ち1
+		state st2 goto st3;	// リターンバック信号待ち2
+		state st3 goto st4;	// リターンバック信号待ち3
+		state st4 par{
+			if(VRAM_CSn==0b0){
+				vmem.read(VRAM_A10 || ppu.PA<9:0>);
+			}
+			goto st1;
+			finish;
+		}
+	}
+
+	// 50MHz: 18 cycle (17でマリオok,3NG)
+	stage chr_read_stg {
+		state_name st1,st2,st3,st4,st5,st6;
+		first_state st1;
+		state st1 par{
+			read_chr(); // for Mappers
+			chr_RW_reg := 0b1;
+			chr_count := 0;
+			goto st2;
+		}
+		state st2 par{
+			chr_count++;
+			if(chr_count==3) goto st3;
+		}
+		state st3 par{
+			RDn_reg := 0b0;
+			chr_count := 0;
+			goto st4;
+		}
+		state st4 par{
+// 7 ノイズ出る
+// 8 ok
+			chr_count++;
+			if(chr_count==8) goto st5;
+		}
+		state st5 par{
+			chr_din_reg := chr_din;
+			goto st6;
+		}
+		state st6 par{
+			RDn_reg := 0b1;
+			ppu.read_ack();
+			goto st1;
+			finish;
+		}
+	}
+
+	stage vram_write_stg {
+		state_name st1,st2,st3,st4;
+		first_state st1;
+		state st1 goto st2;	// リターンバック信号待ち1
+		state st2 goto st3;	// リターンバック信号待ち2
+		state st3 goto st4;	// リターンバック信号待ち3
+		state st4 par{
+			if(VRAM_CSn==0b0){
+				vmem.write(VRAM_A10 || ppu.PA<9:0>, ppu.PDout);
+			}
+			goto st1;
+			finish;
+		}
+	}
+
+	// 50MHz: 18 cycle
+	stage chr_write_stg {
+		state_name st1,st2,st3,st4,st5;
+		first_state st1;
+		state st1 par{
+			write_chr(); // for Mappers
+			chr_RW_reg := 0b0;
+			chr_count := 0;
+			goto st2;
+		}
+		state st2 par{
+			chr_count++;
+// 1 ちょっとノイズ
+// 2 ちょっとノイズ
+// 3 ok
+// 4 ok
+// 5 DQ4化け(あったまるとノイズが減る？)
+// 6 ok
+			if(chr_count==7) goto st3;
+		}
+		state st3 par{
+			WEn_reg := 0b0;
+			chr_count := 0;
+			goto st4;
+		}
+		state st4 par{
+// 1 ok
+// 2 ok
+			chr_count++;
+			if(chr_count==4) goto st5;
+		}
+		state st5 par{
+			WEn_reg := 0b1;
+			goto st1;
+			finish;
+		}
+	}
+
+	// APUのDMCは最優先なのでread_waitは必要ない
+	stage apu_dmc_read {
+		par{
+			generate mpu_read.do(apu_dmc_adrs);
+			generate apu_dmc_read_wait.do();
+			finish;
+		}
+	}
+
+	stage apu_dmc_read_wait {
+		if(mpu.read_ack){
+			apu.dmc_read_ack();
+			apu.din = mpu.din;
+			f_apu_dmc := 0b0;
+			finish;
+		}
+	}
+
+	// 50MHz/1.789772.5 = 27.9 clk 558ns
+// 350ns(17.5clk)/559ns CPU cycles begin at the point where M2 goes low.
+	stage phi2_tim {
+		reg_wr phi_count<5>;
+		state_name st1,st2,st3,st4,st5;
+		first_state st1;
+		state st1 par{
+			Phi2_reg := 0b0;
+			phi_count := 0;
+			goto st2;
+		}
+		state st2 par{
+			phi_count++;
+// 2 ok
+// 8 NG
+			if(phi_count==2) goto st3;
+		}
+		state st3 par{
+			Phi2_reg := 0b1;
+			phi_count := 0;
+			goto st4;
+		}
+		state st4 par{
+			phi_count++;
+// 16 ok
+			if(phi_count==16) goto st5;
+		}
+		state st5 par{
+			Phi2_reg := 0b0;
+			goto st1;
+			finish;
+		}
+	}
+
+	stage mem_clear_stg {
+		reg_wr init_wait<8>, mem_adrs<11>;
+		state_name stw, st1;
+		first_state stw;
+		state stw par{
+			init_wait++;
+			if(/&init_wait) goto st1;
+		}
+		state st1 par{
+			wmem.write(mem_adrs, 0x00);
+			vmem.write(mem_adrs, 0x00);
+			mem_adrs++;
+			if(/&mem_adrs){
+				mem_cleaned();
+				goto stw;
+				finish;
+			}
+		}
+	}
+
+}

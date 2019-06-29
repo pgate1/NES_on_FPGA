@@ -1,0 +1,419 @@
+
+/*
+	FDS音源
+*/
+
+/*
+%i "mul_6.h"
+%i "mul_12.h"
+%i "mul_s7.h"
+%i "mul_s13.h"
+*/
+
+declare mul_6 interface
+{
+	input a<6>, b<6>;
+	output dout<12>;
+	instrin con;
+	instr_arg con(a, b);
+}
+
+declare mul_12 interface
+{
+	input a<12>, b<12>;
+	output dout<24>;
+	instrin con;
+	instr_arg con(a, b);
+}
+
+declare mul_s7 interface
+{
+	input a<7>, b<7>;
+	output dout<14>;
+	instrin con;
+	instr_arg con(a, b);
+}
+
+declare mul_s13 interface
+{
+	input a<13>, b<13>;
+	output dout<26>;
+	instrin con;
+	instr_arg con(a, b);
+}
+
+circuit fds_core
+{
+	instrin io_write(io_A, io_Din);
+	input io_A<8>, io_Din<8>;
+//	instrin io_read(io_A);
+//	output io_Dout<8>;
+//	reg_wr io_Dout_reg<8>;
+	instrin run;
+	instrin ready;
+	instrin f_lpf; // LPF有効
+
+	output sound<7>;
+	reg_wr sound_reg<14>, sound_now<14>;
+	instrout note_on;
+
+	reg_wr f_main_period_rst;
+	reg_wr main_freq_low<8>, main_freq_high<4>;
+	reg_wr f_disable;
+
+	// 波形テーブル
+	mem wav_tbl[64]<6>;
+	reg_wr f_wavtbl_conf;
+	reg_wr wav_reg<6>, wav_adrs<6>;
+
+	reg_wr f_env_disable;
+	reg_wr env_base_speed<8>;
+
+	// Sweep設定
+	reg_wr swp_env_mode<2>, swp_env_data<6>;
+
+	// LFO設定
+	reg_wr lfo_freq_low<8>, lfo_freq_high<4>;
+	reg_wr f_lfotbl_conf, f_lfo_period_rst;
+	mem lfo_tbl[32]<3>;
+	reg_wr lfo_adrs<6>;
+
+	// サブ周波数
+	reg_wr swp_bias<7>, swp_env_gain<6>;
+	mul_s7 swpmul;
+	sel swpmul_dout<13>, swpmul_sht<9>;
+	mul_s13 fmul;
+	reg_wr sub_multi<9>, sub_freq<15>;
+
+	// エンベロープ
+	reg_wr vol_env_mode<2>, vol_env_data<6>;
+	reg_wr vol_env_gain<6>;
+	reg_wr env_volume<6>;
+	sel env_volume_clip<6>;
+
+	mul_6 vmul;
+	reg_wr wavp_reg<11>;
+	reg_wr main_volume<2>;
+	sel main_voli<4>;
+	mul_12 mmul;
+
+	stage_name EnvelopeBase { task do(); }
+	stage_name VolumeEnvelope { task do(); }
+	stage_name SweepEnvelope { task do(); }
+	stage_name Effector { task do(); }
+	stage_name Render { task do(); }
+	stage_name LPF { task do(); }
+
+	par{
+/*
+		if(io_read){
+			io_Dout_reg := io_Dout;
+		}
+		else{
+			io_Dout = io_Dout_reg;
+		}
+*/
+		// LFO演算
+		// swp_bias<s7>(-64～63) x swp_env_gain<6>(0～63)
+		// s7 x 6 = s13  sbbbbbbgggggg
+		swpmul_dout = swpmul.con(swp_bias, 0b0||swp_env_gain).dout<12:0>;
+		// swpmul_dout<s13> -4032($F040)～3969($0F81)
+
+		// swpmul_dout >> 4 = <s9> -252($F04)～+248.1($0F8)
+
+		if(/|swpmul_dout<3:0>){ // 16で割り切れない場合
+			if(^swp_bias<6>) swpmul_sht = swpmul_dout<12:4> + 0b000000001; // 正の場合
+			else             swpmul_sht = swpmul_dout<12:4> - 0b000000001; // 負の場合
+		}
+		else{ // 16で割り切れる場合
+			swpmul_sht = swpmul_dout<12:4>;
+		}
+
+		// swpmul_sht<s9> = -252($F04)～+249($0F9)
+		if(
+			(swpmul_sht<8:6>==0b011) |                   // >192で-256する(-64へラップ)
+			(swpmul_sht<8> & (^(swpmul_sht<7:6>==0b11))) // <-64で+256する(192へラップ)
+		){
+			sub_multi := (^swpmul_sht<8>) || swpmul_sht<7:0>;
+		}
+		else sub_multi := swpmul_sht;
+		// sub_multi<s9> = -64($FC0)～+192($0C0)
+
+		// サブ周波数生成
+		// (<12>(0～4095($FFF)) x <s9>(-64～+192)) >> 6 = -4095($F001)～+12285($2FFD)
+		// <12> x <s9> = sffffffffffffssssssss sub_freq<s15>
+		sub_freq := fmul.con(0b0||main_freq_high||main_freq_low, 13#sub_multi).dout<20:6>;
+
+		// ボリュームエンベロープ演算
+		if(wav_adrs==0b000000) env_volume := vol_env_gain;
+
+		// env_volume < 0x21
+		if(env_volume<5>) env_volume_clip = 0b100000;
+		else env_volume_clip = env_volume;
+
+		// WAVにエンベロープ値を乗算
+		// <6> x <6> = <11> vvvvvv00000
+		wavp_reg := vmul.con(wav_reg, env_volume_clip).dout<10:0>;
+
+		switch(main_volume){
+			case 0b00: main_voli = 0b1000;
+			case 0b01: main_voli = 0b0101;
+			case 0b10: main_voli = 0b0100;
+			case 0b11: main_voli = 0b0011;
+		}
+/*
+		// 微調整に+1
+		switch(main_volume){
+			case 0b00: main_voli = 0b1001;
+			case 0b01: main_voli = 0b0110;
+			case 0b10: main_voli = 0b0101;
+			case 0b11: main_voli = 0b0100;
+		}
+*/
+		// メインボリューム乗算
+		// 6 x 4 = 6
+		// <11> x <4> = <14> vvvvvvvvvvv000
+		sound_now := mmul.con(0b0||wavp_reg, 0x00||main_voli).dout<13:0>;
+
+		if(f_lpf) sound = sound_reg<13:7>;
+		else      sound = sound_now<13:7>;
+	}
+
+	instruct ready par{
+		main_volume := 0;
+		sound_reg := 0;
+	}
+/*
+	instruct io_read par{
+	}
+*/
+
+	instruct io_write par{
+		any{
+			(io_A<7:6>==0b01) & f_wavtbl_conf : par{ // $40-$7F
+				wav_tbl[io_A<5:0>] := io_Din<5:0>;
+			}
+			io_A==0x80 : par{
+				vol_env_mode := io_Din<7:6>;
+				vol_env_data := io_Din<5:0>;
+				if(io_Din<7>) vol_env_gain := io_Din<5:0>;
+			}
+			io_A==0x82 : par{
+				main_freq_low := io_Din;
+//				f_main_period_rst := 0b1;
+			}
+			io_A==0x83 : par{
+				f_disable := io_Din<7>;
+				if(io_Din<7>) wav_adrs := 0b000000;
+				f_env_disable := io_Din<6>;
+				main_freq_high := io_Din<3:0>;
+				f_main_period_rst := 0b1;
+				if(^io_Din<7> & /|main_freq_high) note_on();
+			}
+			io_A==0x84 : par{
+				swp_env_mode := io_Din<7:6>;
+				swp_env_data := io_Din<5:0>;
+				if(io_Din<7>) swp_env_gain := io_Din<5:0>;
+			}
+			io_A==0x85 : par{
+				swp_bias := io_Din<6:0>;
+				lfo_adrs := 0b000000;
+			}
+			io_A==0x86 : par{
+				lfo_freq_low := io_Din;
+//				f_lfo_period_rst := 0b1;
+			}
+			io_A==0x87 : par{
+				f_lfotbl_conf := io_Din<7>;
+				if(io_Din<7>) lfo_adrs := 0b000000;
+				lfo_freq_high := io_Din<3:0>;
+				f_lfo_period_rst := 0b1;
+			}
+			io_A==0x88 : par{
+				if(f_lfotbl_conf){
+					lfo_tbl[lfo_adrs<5:1>] := io_Din<2:0>;
+					lfo_adrs += 0b000010;
+				}
+			}
+			io_A==0x89 : par{
+				f_wavtbl_conf := io_Din<7>; // 1ならwavへのWrite可能でこのときサウンド出力しない
+				main_volume := io_Din<1:0>;
+			}
+			io_A==0x8A : par{
+				env_base_speed := io_Din;
+			}
+		}
+	}
+
+	// 約1.789MHz
+	instruct run par{
+		if(^f_env_disable) generate EnvelopeBase.do();
+		if(^f_lfotbl_conf) generate Effector.do();
+		if((^f_wavtbl_conf) & (^f_disable)) generate Render.do();
+	}
+
+	stage EnvelopeBase {
+		reg_wr env_base_count<8>;
+		par{
+			// ベースの速度をカウントする（env_base_speedが大きいほどエンベロープは緩やか）
+			if(/|env_base_count){
+				env_base_count--;
+			}
+			else{
+				if(/|env_base_speed){
+					env_base_count := env_base_speed;
+					if(^swp_env_mode<1>) generate SweepEnvelope.do();
+					if(^vol_env_mode<1>) generate VolumeEnvelope.do();
+				}
+			}
+			finish;
+		}
+	}
+
+	stage SweepEnvelope {
+		reg_wr swp_env_count<9>;
+		state_name sp,ep;
+		first_state sp;
+		state sp par{
+			// Sweepエンベロープx8をカウントする（sweep_env_dataが大きいほどエンベロープは緩やか）
+			if(swp_env_count!=0){
+				swp_env_count--;
+				finish;
+			}
+			else{
+				swp_env_count := swp_env_data || 0b000;
+				goto ep;
+			}
+		}
+		state ep par{
+			any{
+				swp_env_mode<0>==0b0 : par{ // 減衰モード swp_env_mode==0b00
+					if(swp_env_gain!=0) swp_env_gain--;
+				}
+				swp_env_mode<0>==0b1 : par{ // 増加モード swp_env_mode==0b01
+					if(swp_env_gain<5>==0b0) swp_env_gain++;
+				}
+			}
+			goto sp;
+			finish;
+		}
+	}
+
+	stage Effector {
+		reg_wr lfo_period<16>;
+		sel lfo_period_add<16>;
+		reg_wr lfo_now<3>;
+		state_name wcount, wread;
+		first_state wcount;
+		state wcount par{
+			lfo_period_add = lfo_period + (0x0 || lfo_freq_high || lfo_freq_low);
+			if(f_lfo_period_rst){
+				lfo_period := 0x0000;
+				f_lfo_period_rst := 0b0;
+			}
+			else lfo_period := lfo_period_add;
+
+			if(lfo_period<15> & (^lfo_period_add<15>)){
+				lfo_now := lfo_tbl[lfo_adrs<5:1>];
+				goto wread;
+			}
+			else finish;
+		}
+		state wread par{
+			// swp_bias<s7> -64～+63 ラップ有り(+64==-64)
+			switch(lfo_now){
+				case 0b000: ;
+				case 0b001: swp_bias += 0b0000001;
+				case 0b010: swp_bias += 0b0000010;
+				case 0b011: swp_bias += 0b0000100;
+				case 0b100: swp_bias := 0b0000000;
+				case 0b101: swp_bias -= 0b0000100;
+				case 0b110: swp_bias -= 0b0000010;
+				case 0b111: swp_bias -= 0b0000001;
+			}
+			lfo_adrs++;
+			goto wcount;
+			finish;
+		}
+	}
+
+	stage VolumeEnvelope {
+		reg_wr vol_env_count<9>;
+		state_name sp,ep;
+		first_state sp;
+		state sp par{
+			// Volumeエンベロープx8をカウントする（vol_env_dataが大きいほどエンベロープは緩やか）
+			if(vol_env_count!=0){
+				vol_env_count--;
+				finish;
+			}
+			else{
+				vol_env_count := vol_env_data || 0b000;
+				goto ep;
+			}
+		}
+		state ep par{
+			any{
+				vol_env_mode<0>==0b0 : par{ // 減衰モード vol_env_mode==0b00
+					if(vol_env_gain!=0) vol_env_gain--;
+				}
+				vol_env_mode<0>==0b1 : par{ // 増加モード vol_env_mode==0b01
+					if(vol_env_gain<5>==0b0) vol_env_gain++;
+				}
+			}
+			goto sp;
+			finish;
+		}
+	}
+
+	stage Render {
+		reg_wr main_period<16>;
+		sel main_period_add<16>;
+		state_name wcount, wread;
+		first_state wcount;
+		state wcount par{
+			main_period_add = main_period + (0x0 || main_freq_high || main_freq_low) + (16#sub_freq);
+			if(f_main_period_rst){
+				main_period := 0x0000;
+				f_main_period_rst := 0b0;
+			}
+			else main_period := main_period_add;
+			
+			if(main_period<15> & (^main_period_add<15>)) goto wread;
+			else finish;
+		}
+		state wread par{
+			// (参考)mem変数は一旦regに入れることでramに配置してくれるようだ(QuartusII)
+			wav_reg := wav_tbl[wav_adrs];
+			wav_adrs++;
+			generate LPF.do();
+			goto wcount;
+			finish;
+		}
+	}
+
+	stage LPF {
+		reg_wr sound_reg_0<14>;
+		sel sound_add<16>, sound_avg<16>;
+		state_name w1, w2, w3;
+		first_state w1;
+		state w1 par{
+			// 前回の出力値を保持
+			sound_reg_0 := sound_reg;
+			goto w2;
+		}
+		state w2 goto w3;
+		state w3 par{
+			// 3点LPF
+//			sound_add = (0b0 || sound_reg_0 || 0b0) + (0b00 || sound_now);
+//			sound_avg = (sound_add >> 2) + (sound_add >> 4) + (sound_add >> 6) + (sound_add >> 8);
+			// 2点LPF
+			sound_add = (0b00 || sound_reg_0) + (0b00 || sound_now);
+			sound_avg = (sound_add >> 1);
+			sound_reg := sound_avg<13:0>;
+			goto w1;
+			finish;
+		}
+	}
+
+}

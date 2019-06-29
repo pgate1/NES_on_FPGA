@@ -1,0 +1,67 @@
+
+// Sunsoft5B Tone Generator
+
+circuit sn_tone_gen
+{
+	instrin write(adrs, din);
+	input adrs, din<8>;
+	instrin run;
+//	instrin ready;
+
+	output sound;
+	instrout note_on;
+
+	reg_wr period_high<4>, period_low<8>;
+
+	// Sequencer
+	reg_wr seq_side;
+
+	stage_name Divider { task do(); }
+	stage_name Sequencer { task do(); }
+
+	par{
+		sound = seq_side;
+	}
+
+/*
+	instruct ready par{
+		seq_side := 0b0;
+	}
+*/
+
+	instruct write switch(adrs){
+		case 0b0: par{
+			period_low := din;
+			if(/|din) note_on();
+		}
+		case 0b1: par{
+			period_high := din<3:0>;
+		}
+	}
+
+	instruct run par{
+		generate Divider.do();
+	}
+
+	stage Divider {
+		reg_wr period<12>;
+		par{
+			if(period!=0) period--;
+			else{
+				period := period_high || period_low;
+				if(/|period_high | /|period_low) generate Sequencer.do();
+			}
+			finish;
+		}
+	}
+
+	stage Sequencer {
+		reg_wr seq_count<5>;
+		par{
+			if(/&seq_count<3:0>) seq_side := seq_count<4>;
+			seq_count++;
+			finish;
+		}
+	}
+
+}

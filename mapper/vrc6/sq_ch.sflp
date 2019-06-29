@@ -1,0 +1,77 @@
+
+// VRC6 Square channel
+
+circuit sq_ch
+{
+	instrin write(adrs, din);
+	input adrs<2>, din<8>;
+	instrin ready, run;
+
+	output sound<4>;
+	instrout note_on;
+
+	reg_wr gate, duty<3>, volume<4>;
+	reg_wr period_high<4>, period_low<8>;
+	reg_wr enable;
+
+	// Sequencer
+	reg_wr seq_side, seq_duty<2>;
+
+	stage_name Divider { task do(); }
+	stage_name Sequencer { task do(); }
+
+	par{
+		if((enable & seq_side) | gate) sound = volume;
+		else sound = 0b0000;
+	}
+
+	instruct ready par{
+		enable := 0b0;
+		gate := 0b0;
+	}
+
+	instruct write switch(adrs){
+		case 0b00: par{ // $9000,$A000
+			gate := din<7>;
+			duty := din<6:4>;
+			volume := din<3:0>;
+		}
+		case 0b01: par{ // $9001,$A001
+			period_low := din;
+		}
+		case 0b10: par{ // $9002,$A002
+			enable := din<7>;
+			period_high := din<3:0>;
+			if(din<7>) note_on();
+		}
+	}
+
+	instruct run par{
+		if(enable) generate Divider.do();
+	}
+
+	stage Divider {
+		reg_wr period<12>;
+		par{
+			if(period!=0) period--;
+			else{
+				period := period_high || period_low;
+				generate Sequencer.do();
+			}
+			finish;
+		}
+	}
+
+	stage Sequencer {
+		reg_wr seq_count<4>;
+		par{
+			alt{
+				/&seq_count :          seq_side := 0b1;
+				seq_count<2:0>==duty : seq_side := 0b0;
+			}
+			seq_count++;
+			finish;
+		}
+	}
+
+}

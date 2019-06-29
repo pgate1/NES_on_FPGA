@@ -1,0 +1,210 @@
+
+/*
+	Mapper 023
+	Konami VRC2 type B
+		PRG-ROM 16KB banks 8 max 128KB
+		CHR-ROM 8KB banks 16 32 max 256KB
+*/
+
+circuit Mapper023
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read;//, chr_write; // RDn, WEn
+	input chr_A<14>;//, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+//	instrin Phi; // 1.789MHz
+//	output usound<11>, ssound<14>;
+
+	instrout exram_read(exram_adrs);
+	output exram_adrs<13>; // EX_RAM  8KB
+	output exram_wdata<8>;
+	instrout exram_write(exram_adrs, exram_wdata);
+	input exram_rdata<8>;
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<17>; // PRG_ROM max 128KB
+//	output prg_ram_wdata<8>;
+//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_rom_rdata<8>;
+
+	instrout chr_ram_read(chr_ram_adrs);
+	output chr_ram_adrs<18>; // CHR_ROM max 256KB
+//	output chr_ram_wdata<8>;
+//	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	input chr_ram_rdata<8>;
+
+	instrin init;
+	instrin hblank;
+
+	input fMirroringType;
+	reg_wr fMirroringType_reg<2>;
+
+	sel prg_adrs<8>;
+	reg_wr prg_bank4<4>, prg_bank5<4>, prg_bank6<4>, prg_last_bank<4>;
+	reg_wr chr_bank0_L<4>, chr_bank1_L<4>, chr_bank2_L<4>, chr_bank3_L<4>;
+	reg_wr chr_bank4_L<4>, chr_bank5_L<4>, chr_bank6_L<4>, chr_bank7_L<4>;
+	reg_wr chr_bank0_H<4>, chr_bank1_H<4>, chr_bank2_H<4>, chr_bank3_H<4>;
+	reg_wr chr_bank4_H<4>, chr_bank5_H<4>, chr_bank6_H<4>, chr_bank7_H<4>;
+
+	instrself map_rom, map_exram;
+
+	reg_ws IRQn_reg;
+	reg_wr regs_8;
+
+	reg_wr irq_counter<8>, irq_enabled<2>; //irq_clock<8>;
+	reg_wr irq_latch_H<4>, irq_latch_L<4>;
+
+	par{
+
+		if(ROM_SELn==0b0){
+			map_rom();
+		}
+		else any{
+		//	prg_A<14:13>==0b10 : map_exrom();
+			prg_A<14:13>==0b11 : map_exram();
+		}
+
+		any{
+			map_rom : prg_Dout = prg_rom_rdata;
+			map_exram : prg_Dout = exram_rdata;
+		}
+
+		prg_adrs = 0b1 || prg_A<14:12> || prg_A<3:0>; // 1111_----_----_1111
+
+		VRAM_CSn = ^chr_A<13>;
+
+		switch(fMirroringType_reg){
+			case 0b00: VRAM_A10 = chr_A<10>;
+			case 0b01: VRAM_A10 = chr_A<11>;
+			case 0b10: VRAM_A10 = 0b0; // mirror $2000
+			case 0b11: VRAM_A10 = 0b1; // mirror $2400
+		}
+
+		chr_Dout = chr_ram_rdata;
+
+		IRQn = IRQn_reg;
+/*
+		usound = // <11>
+			0b00000000000;
+
+		ssound = // <14s>
+		   0b00000000000000;
+*/
+	}
+
+	instruct init par{
+		regs_8 := 0;
+		prg_bank4 := 0b0000;
+		prg_bank5 := 0b0001;
+		prg_bank6     := 0b1110;
+		prg_last_bank := 0b1111;
+		irq_latch_L := 0;
+		irq_latch_H := 0;
+		irq_counter := 0;
+		irq_enabled := 0;
+	//	irq_clock := 0;
+		chr_bank0_L := 0x0; chr_bank0_H := 0x0;
+		chr_bank1_L := 0x1; chr_bank1_H := 0x0;
+		chr_bank2_L := 0x2; chr_bank2_H := 0x0;
+		chr_bank3_L := 0x3; chr_bank3_H := 0x0;
+		chr_bank4_L := 0x4; chr_bank4_H := 0x0;
+		chr_bank5_L := 0x5; chr_bank5_H := 0x0;
+		chr_bank6_L := 0x6; chr_bank6_H := 0x0;
+		chr_bank7_L := 0x7; chr_bank7_H := 0x0;
+		fMirroringType_reg := 0b0 || ^fMirroringType;
+	}
+
+	instruct prg_read any{
+		map_rom : par{
+			// prg_bank<4> + prg_A<13> = <17>
+			sel prg_read_bank<4>;
+			switch(prg_A<14:13>){
+				case 0b00: prg_read_bank = prg_bank4;
+				case 0b01: prg_read_bank = prg_bank5;
+				case 0b10: prg_read_bank = prg_bank6;
+				case 0b11: prg_read_bank = prg_last_bank;
+			}
+			prg_ram_read(prg_read_bank || prg_A<12:0>);
+		}
+		map_exram : exram_read(prg_A<12:0>);
+	}
+
+	instruct prg_write any{
+		map_rom : switch(prg_adrs){
+			(case 0x80) | (case 0x84) |
+			(case 0x88) | (case 0x8C) : par{
+				if(regs_8) prg_bank6 := prg_Din<3:0>;
+				else         prg_bank4 := prg_Din<3:0>;
+			}
+			case 0x90 : fMirroringType_reg := prg_Din<1:0>;
+			case 0x98 : regs_8 := prg_Din<1>;
+			(case 0xA0) | (case 0xA4) |
+			(case 0xA8) | (case 0xAC) : prg_bank5 := prg_Din<3:0>;
+			case 0xB0 :                 chr_bank0_L := prg_Din<3:0>;
+			(case 0xB1) | (case 0xB4) : chr_bank0_H := prg_Din<3:0>;
+			(case 0xB2) | (case 0xB8) : chr_bank1_L := prg_Din<3:0>;
+			(case 0xB3) | (case 0xBC) : chr_bank1_H := prg_Din<3:0>;
+			case 0xC0 :                 chr_bank2_L := prg_Din<3:0>;
+			(case 0xC1) | (case 0xC4) : chr_bank2_H := prg_Din<3:0>;
+			(case 0xC2) | (case 0xC8) : chr_bank3_L := prg_Din<3:0>;
+			(case 0xC3) | (case 0xCC) : chr_bank3_H := prg_Din<3:0>;
+			case 0xD0 :                 chr_bank4_L := prg_Din<3:0>;
+			(case 0xD1) | (case 0xD4) : chr_bank4_H := prg_Din<3:0>;
+			(case 0xD2) | (case 0xD8) : chr_bank5_L := prg_Din<3:0>;
+			(case 0xD3) | (case 0xDC) : chr_bank5_H := prg_Din<3:0>;
+			case 0xE0 :                 chr_bank6_L := prg_Din<3:0>;
+			(case 0xE1) | (case 0xE4) : chr_bank6_H := prg_Din<3:0>;
+			(case 0xE2) | (case 0xE8) : chr_bank7_L := prg_Din<3:0>;
+			(case 0xE3) | (case 0xEC) : chr_bank7_H := prg_Din<3:0>;
+			case 0xF0 : irq_latch_L := prg_Din<3:0>;
+			case 0xF4 : irq_latch_H := prg_Din<3:0>;
+			case 0xF8 : par{
+				irq_enabled := prg_Din<1:0>;
+				if(prg_Din<1>) irq_counter := irq_latch_H || irq_latch_L;
+			}
+			case 0xFC : irq_enabled := 2#irq_enabled<0>;
+			(prg_adrs<7:4>==0xF) : IRQn_reg := 0b1;
+		}
+		map_exram : exram_write(prg_A<12:0>, prg_Din);
+	}
+
+	instruct chr_read par{
+		if(chr_A<13>==0b0){
+			// chr_bank<8> + chr_A<10> = <18>
+			sel chr_read_bank<8>;
+			switch(chr_A<12:10>){
+				case 0b000: chr_read_bank = chr_bank0_H || chr_bank0_L;
+				case 0b001: chr_read_bank = chr_bank1_H || chr_bank1_L;
+				case 0b010: chr_read_bank = chr_bank2_H || chr_bank2_L;
+				case 0b011: chr_read_bank = chr_bank3_H || chr_bank3_L;
+				case 0b100: chr_read_bank = chr_bank4_H || chr_bank4_L;
+				case 0b101: chr_read_bank = chr_bank5_H || chr_bank5_L;
+				case 0b110: chr_read_bank = chr_bank6_H || chr_bank6_L;
+				case 0b111: chr_read_bank = chr_bank7_H || chr_bank7_L;
+			}
+			chr_ram_read(chr_read_bank || chr_A<9:0>);
+		}
+	}
+
+	instruct hblank par{
+		if(irq_enabled<1>){
+			if(/&irq_counter){
+				IRQn_reg := 0b0;
+				irq_counter := irq_latch_H || irq_latch_L;
+				irq_enabled := 2#irq_enabled<0>;
+			}
+			else irq_counter++;
+		}
+	}
+
+}

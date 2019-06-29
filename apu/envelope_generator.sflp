@@ -1,0 +1,50 @@
+
+// Envelope Generator
+// 矩形波、ノイズchで使用
+
+circuit envelope_generator
+{
+	input ctrl<6>;
+	output count<4>;
+	instrin exc, set(ctrl), halt;
+
+	reg_wr f_loop, f_disable, f_halt;
+	reg_wr e_count<4>, reload<4>;	// wrじゃなくとも良い?
+
+	par{
+		if(f_disable) count = reload;
+		else          count = e_count;
+	}
+
+	instruct set par{
+		reload    := ctrl<3:0>;
+		f_disable := ctrl<4>;
+		f_loop    := ctrl<5>;
+	}
+
+	instruct halt par{
+		f_halt := 0b1;
+	}
+
+	// 240Hz
+	instruct exc par{ // mpu.run + 1clk
+		reg_wr divide<4>;
+		alt{
+			f_halt : par{
+				f_halt := 0b0;
+				divide := reload;
+				e_count := 0xF;
+			}
+			divide!=0 : par{
+				divide--;
+			}
+			else : par{
+				divide := reload;
+				if((e_count!=0) | f_loop){
+					e_count--;
+				}
+			}
+		}
+	}
+
+}

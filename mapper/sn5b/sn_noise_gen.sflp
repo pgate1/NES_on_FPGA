@@ -1,0 +1,81 @@
+
+circuit sn_noise_gen
+{
+	instrin write(din);
+	input din<8>;
+	instrin run;
+//	instrin ready;
+
+//	reg_ws reset;
+
+	output sound;
+	reg_wr sound_reg;
+	instrout note_on;
+
+	reg_wr period<5>;
+
+	// Sequencer
+	reg_wr x<17>;
+
+	stage_name Divider { task do(); }
+	stage_name Sequencer { task do(); }
+
+	par{
+/*
+		if(reset){
+			reset := 0b0;
+		//	x := 0x0000 || 0b1;
+		}
+*/
+		sound = x<0>;
+	//	sound = sound_reg;
+	}
+
+/*
+	instruct ready par{
+	}
+*/
+	instruct write par{
+		period := din<4:0>;
+		if(/|din<4:0>) note_on();
+	}
+
+	instruct run par{
+		generate Divider.do();
+	}
+
+	stage Divider {
+		reg_wr count<5>;
+		par{
+			if(count!=0) count--;
+			else{
+				count := period;
+				generate Sequencer.do();
+			}
+			finish;
+		}
+	}
+
+	stage Sequencer {
+		reg_wr seq_count<4>;
+		par{
+			if(/&seq_count){
+				x := x<15:0> || (x<16> @ x<13> @ 0b1); // ‰ğÍ‘—¿‚ÉŠî‚Ã‚¢‚½‰ŠúÀ‘•
+
+//if( noise.noiserange & 0x01 ) noise.noiserange ^= 0x28000;
+// 10_1000_0000_0000_0000
+//noise.noiserange >>= 1;
+			//	x := x<0> || x<16> || (x<15> @ x<0>) || x<14:1>;
+// (x+1)<1>
+// 0b00 0
+// 0b01 1
+// 0b10 1
+// 0b11 0
+			//	if((x<1:0>+0b01)<1>) sound_reg := ^sound_reg;
+			}
+			seq_count++;
+			finish;
+		}
+	}
+
+}

@@ -1,0 +1,78 @@
+
+// VRC6 ‹˜•ó”g
+
+circuit saw_ch
+{
+	instrin write(adrs, din);
+	input adrs<2>, din<8>;
+	instrin ready, run;
+
+	output sound<6>;
+	instrout note_on;
+
+	reg_wr phase<6>;
+	reg_wr period_high<4>, period_low<8>;
+	reg_wr enable;
+
+	reg_wr div2;
+
+	// Sequencer
+	reg_wr sec_acc<9>;
+
+	stage_name Divider { task do(); }
+	stage_name Sequencer { task do(); }
+
+	if(enable) sound = sec_acc<8:3>;
+	else sound = 0b000000;
+
+	instruct ready par{
+		enable := 0b0;
+	}
+
+	instruct write switch(adrs){
+		case 0b00: par{ // $B000
+			phase := din<5:0>;
+		}
+		case 0b01: par{ // $B001
+			period_low := din;
+		}
+		case 0b10: par{ // $B002
+			enable := din<7>;
+			period_high := din<3:0>;
+			if(din<7>) note_on();
+		}
+	}
+
+	instruct run par{
+		if(enable & div2) generate Divider.do();
+		div2 := ^div2;
+	}
+
+	stage Divider {
+		reg_wr period<12>;
+		par{
+			if(period!=0) period--;
+			else{
+				period := period_high || period_low;
+				generate Sequencer.do();
+			}
+			finish;
+		}
+	}
+
+	stage Sequencer {
+		reg_wr seq_count<3>;
+		par{
+			if(seq_count==0b110){
+				seq_count := 0b000;
+				sec_acc := 0b000000000;
+			}
+			else{
+				seq_count++;
+				sec_acc += (0b000 || phase);
+			}
+			finish;
+		}
+	}
+
+}

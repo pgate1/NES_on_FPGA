@@ -1,0 +1,143 @@
+
+// APU Triangle Channel
+// 三角波
+
+%i "timer_unit.h"
+%i "length_counter.h"
+
+circuit triangle_ch
+{
+	instrin write(adrs, din);
+	input adrs<2>, din<8>;
+
+	instrin run, ctrl(f_ctrl);
+	input f_ctrl;
+
+	instrin LinearCount;
+	instrin LengthCount;
+
+	input length_max<8>;
+
+	output f_length, volume<4>;
+
+	reg_wr enable;
+	reg_wr period_high<3>, period_low<8>;
+
+	timer_unit timer;
+
+	// Linear Counter
+	reg_wr linear_ctrl, linear_load<7>;
+	reg_wr linear_count<7>, linear_start;
+	sel f_linear;
+
+	length_counter len;
+
+	// Tri Wave
+	reg_wr tri_vol<5>;
+
+	instrout note_on, tim_out;
+	reg_wr old_period<11>;
+
+	stage_name length_set { task do(); }
+	stage_name LinearCounter { task do(); }
+	stage_name TriSequencer { task do(); }
+
+	par{
+		timer.period = 0b0 || period_high || period_low;
+
+		f_linear = /|linear_count;
+
+		f_length = len.f_length;
+
+		if(tri_vol<4>) volume =  tri_vol<3:0>;
+		else           volume = ^tri_vol<3:0>;
+	}
+
+	instruct write par{
+		switch(adrs){
+			case 0b00 : par{	// $4008 Tri Ctrl
+				linear_ctrl := din<7>;
+				linear_load := din<6:0>;
+				len.halt(din<7>);
+			//	if(/|din<6:0>) note_on();
+				if(din<6:0>==0b0000000) old_period := 0;
+			}
+			case 0b01 : ; // 未使用
+			case 0b10 : par{	// $400A Tri Freq 1
+				period_low := din;
+			//	if(/|din) note_on();
+			}
+			case 0b11 : par{	// $400B Tri Freq 2
+				period_high := din<2:0>;
+				linear_start := 0b1;
+			//	len.set(length_max);
+				generate length_set.do();
+				if((/|period_low | /|din<2:0>) & ((din<2:0>||period_low)!=old_period)){
+					note_on();
+				}
+				old_period := din<2:0> || period_low;
+			}
+		}
+	}
+
+	instruct ctrl par{
+		if(f_ctrl){
+			enable := 0b1;
+		}
+		else{
+			// enableを追加して巫女巫女ナースの最後止まるようになった
+			enable := 0b0;
+			linear_count := 0;
+			old_period := 0;
+		}
+		len.enable(f_ctrl);
+	}
+
+	// 外部からのmpuクロックで動作 1.79MHz
+	instruct run timer.exc();
+
+	instruct timer.clock_out par{
+		if(enable & f_linear & f_length & /|timer.period){
+			generate TriSequencer.do();
+			tim_out();
+		}
+	}
+
+	instruct LinearCount par{
+		if(enable) generate LinearCounter.do();
+	}
+
+	instruct LengthCount len.exc();
+
+	stage length_set {
+		par{
+			len.set(length_max);
+			finish;
+		}
+	}
+
+	// 240Hz
+	stage LinearCounter {
+		par{
+			finish;
+			alt{
+				linear_start : par{
+					linear_count := linear_load;
+					if(^linear_ctrl) linear_start := 0b0;
+				}
+				f_linear : par{
+					linear_count--;
+				}
+			}
+		}
+	}
+
+	// 周波数カウンタへの書き込みでリセットされることはない
+	stage TriSequencer {
+		par{
+			finish;
+			tri_vol++;
+		}
+	}
+
+}

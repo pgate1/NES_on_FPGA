@@ -1,0 +1,201 @@
+
+// APU Square Channel
+// 矩形波
+
+%i "envelope_generator.h"
+%i "length_counter.h"
+%i "timer_unit.h"
+
+circuit square_ch
+{
+	input ch_slct;
+
+	instrin write(adrs, din);
+	input adrs<2>, din<8>;
+
+	instrin run, ctrl(f_ctrl), init;
+	input f_ctrl;
+	reg_wr enable;
+
+	instrin EnvelopeGenerate;
+	instrin Sweep;
+	instrin LengthCount;
+
+	input length_max<8>;
+
+	output f_length, volume<4>;
+
+	envelope_generator env;
+	length_counter len;
+
+	reg_wr period_high<4>, period_low<8>;
+
+	// Sweep Unit
+	reg_wr sweep_enable, sweep_halt;
+	reg_wr sweep_period<3>;
+	reg_wr sweep_neg;
+	sel period<12>;
+	reg_wr sweep_shift<3>;
+	sel sweep_var<11>, sweep_over;
+
+	timer_unit timer;
+	sel vol_out;
+	reg_wr vol_out_pre; // 立ち上がり検出用
+
+	// Sequencer
+	reg_wr seq_side, seq_count<3>, seq_duty<2>;
+
+	instrout note_on, tim_out;
+	reg_wr old_period<11>;
+
+	stage_name length_set { task do(); }
+	stage_name SweepUnit { task do(); }
+	stage_name SqSequencer { task do(); }
+
+	par{
+		period = period_high || period_low;
+
+		sweep_var = period<10:0> >> sweep_shift;
+
+		sweep_over = (period<11:3>==0b000000000) | period<11>;
+// 11bitカウントで最低約54.6Hzまで出せる
+	//	timer.period = 0b0 || period<10:0>; // for seq_count 4bit
+		timer.period = period<10:0> || 0b0; // for seq_count 3bit
+
+		f_length = len.f_length;
+
+// seq_sideのHLを変えても音質的な変化は見られなかった
+// sweep overによる音ポーズはsweep有効無効に関わらず働く
+		vol_out = (^sweep_over) & seq_side & f_length;
+		volume = env.count & (4#vol_out);
+		//old  volume = env.count & (4#((^sweep_over) & seq_side & f_length));
+
+	//	vol_out_pre := vol_out;
+	//	if((vol_out_pre||vol_out)==0b01) tim_out();
+	}
+
+	instruct init par{
+		sweep_enable := 0b0;
+	}
+
+	instruct write par{
+		switch(adrs){
+			case 0b00 : par{	// $4000/$4004 Square Ctrl 1
+				seq_duty := din<7:6>;
+				env.set(din<5:0>);
+				len.halt(din<5>);
+			//	if(/|din<3:0>) note_on(); // これは多い
+				if(din<3:0>==0b0000) old_period := 0;
+			}
+			case 0b01 : par{	// $4001/$4005 Square Ctrl 2
+				sweep_enable := din<7>;
+				sweep_period := din<6:4>;
+				sweep_neg    := din<3>;
+				sweep_shift  := din<2:0>;
+			}
+			case 0b10 : par{	// $4002/$4006 Square Freq 1
+				period_low := din;
+			//	if(/|din) note_on();
+			}
+			case 0b11 : par{	// $4003/$4007 Square Freq 2
+				env.halt();
+				period_high := 0b0 || din<2:0>;
+				sweep_halt := 0b1;
+				seq_count := 0b000;
+				// 周波数レジスタの上位3bitに書き込みを行うと位相がリセットされる
+				seq_side := 0b1;
+			//	len.set(length_max);
+				generate length_set.do();
+				if((/|period_low | /|din<2:0>) & ((din<2:0>||period_low)!=old_period)){
+					note_on();
+				}
+				old_period := din<2:0> || period_low;
+			}
+		}
+	}
+
+	instruct ctrl par{
+		if(f_ctrl){
+			enable := 0b1;
+		}
+		else{
+			enable := 0b0;
+			old_period := 0;
+		}
+		len.enable(f_ctrl);
+	}
+
+	// 外部からのmpuクロックで動作
+	instruct run timer.exc();
+
+	instruct EnvelopeGenerate env.exc();
+	instruct Sweep generate SweepUnit.do();
+
+	instruct LengthCount par{
+		if(enable) len.exc();
+	}
+
+	instruct timer.clock_out par{
+		if(enable){
+			generate SqSequencer.do();
+			tim_out();
+		}
+	}
+
+	stage length_set {
+		par{
+			len.set(length_max);
+			finish;
+		}
+	}
+
+	// 120Hz
+	stage SweepUnit {
+		reg_wr sweep_div<3>;
+		par{
+			finish;
+			alt{
+				sweep_halt : par{
+					sweep_halt := 0b0;
+					sweep_div := sweep_period;
+				}
+				sweep_div!=0 : par{
+					sweep_div--;
+				}
+				else : par{
+					sweep_div := sweep_period;
+					if(sweep_enable & (^sweep_over) & (sweep_shift!=0)){
+						sel sweep_add<12>;
+						if(sweep_neg){	// しり上がり
+							switch(ch_slct){
+								case 0b0: sweep_add = period + (^(0b0||sweep_var));
+								case 0b1: sweep_add = period -   (0b0||sweep_var);
+							}
+						}
+						else{	// しり下がり
+							sweep_add = period + (0b0||sweep_var);
+						}
+						period_low  := sweep_add<7:0>;
+						period_high := sweep_add<11:8>;
+					}
+				}
+			}
+		}
+	}
+
+	stage SqSequencer {
+		par{
+			finish;
+			alt{
+				seq_count==0b000 : par{
+					seq_side := 0b1;
+				}
+				seq_count<2:1>==seq_duty : par{
+					seq_side := 0b0;
+				}
+			}
+			seq_count++;
+		}
+	}
+
+}

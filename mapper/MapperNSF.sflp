@@ -1,0 +1,436 @@
+
+/*
+	Mapper NSF (0x0C)
+
+	バンク 0x00～0xFF
+	バンクサイズ 4KB(0x1000)
+	最大ファイルサイズ約 1MB
+
+マッパー031(0x1F)に変更しようか？
+*/
+
+%i "nsf_init_rom.h"
+%i "mmc5/mmc5_core.h"
+%i "n106/n106_core.h"
+%i "fds/fds_core.h"
+%i "vrc6/vrc6_core.h"
+%i "sn5b/sn5b_core.h"
+%i "vrc7/vrc7_fifo.h"
+
+circuit MapperNSF
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+	instrself map_rom, map_exrom, map_exram;
+
+	// CHR-ROM 未使用
+//	instrin chr_read, chr_write; // RDn, WEn
+//	input chr_A<14>, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+	reg_wr usound_reg<11>;
+	instrout mmc5_note_on, n106_note_on, fds_note_on, vrc6_note_on, sn5b_note_on, vrc7_note_on;
+
+	instrin attach(set_Din);
+	input set_Din<8>, set_eof;
+	output ack, set_ok;
+
+	instrout exram_read(exram_adrs);
+	output exram_adrs<13>; // EX_RAM 8KB
+	output exram_wdata<8>;
+	instrout exram_write(exram_adrs, exram_wdata);
+	input exram_rdata<8>;
+
+	// 外部RAMへのアクセス
+	instrout prg_ram_read(prg_ram_adrs);
+	output prg_ram_adrs<20>;
+	output prg_ram_wdata<8>;
+	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	input prg_rom_rdata<8>;
+
+	// 未使用
+//	instrout chr_ram_read;
+//	output chr_ram_wdata<8>;
+//	instrout chr_ram_write;
+//	input chr_ram_rdata<8>;
+
+	instrin run3580, ready;
+
+	input mute<6>;
+
+	instrin tim1MHz;
+	reg_wr nmi_on;
+	reg_ws speed_count<16>;
+	reg_wr speed_NTSC_L<8>, speed_NTSC_H<8>;
+	reg_wr speed_PAL_L<8>, speed_PAL_H<8>;
+	instrout NMI_out;
+	output f_PAL;
+	reg_wr f_speed_PAL;
+
+	rega nsf_bank[8]<8>;
+	reg_wr ext_sound<8>;
+	sel badrs<20>;
+
+	reg_wr title_str_reg<256>, title_length_reg<5>, title_str_end;
+	reg_wr artist_str_reg<128>, artist_str_end;
+	output title_str<256>, title_length<5>;
+	output artist_str<128>;
+
+	nsf_init_rom init_rom;
+
+	mmc5_core mmc5;
+	n106_core n106;
+	fds_core fds;
+	vrc6_core vrc6;
+	sn5b_core sn5b;
+	vrc7_fifo vrc7;
+	sel vrc7_usound<13>;
+
+	reg_wr set_data<8>;
+	reg_wr set_ok_reg;
+
+output dbg<16>;
+reg_wr dbg_reg<16>;
+
+	stage_name attach_stg { task do(set_data); }
+
+	par{
+
+/*
+100 0000 0010 0000 $4020～$5FFF	$1FE0	拡張ROM
+101 1111 1111 1111
+110 0000 0000 0000 $6000～$7FFF	$2000	拡張RAM
+111 1111 1111 1111
+*/
+		if(ROM_SELn==0b0){
+			map_rom();
+		}
+		else any{
+			prg_A<14:13>==0b10 : map_exrom();
+			prg_A<14:13>==0b11 : map_exram();
+		}
+
+		// 未使用
+		chr_Dout = 0x00;
+		VRAM_CSn = 0b1;
+		VRAM_A10 = 0b0;
+
+		any{
+			map_exrom : any{
+				// NSF
+				prg_A<12:8>==0b0_0001 : par{ // $4100
+					prg_Dout = init_rom.dout;
+				}
+				// N106
+				prg_A<12:10>==0b010 : par{ // $4800
+					prg_Dout = n106.io_Dout;
+				}
+			}
+			map_exram : prg_Dout = exram_rdata;
+			map_rom : any{ // IRQ,BRKはPRG-ROMを見る
+				prg_A==0b11111111111_1010 : prg_Dout = 0x30; // NMI
+				prg_A==0b11111111111_1011 : prg_Dout = 0x41; // NMI
+				prg_A==0b11111111111_1100 : prg_Dout = 0x00; // RST
+				prg_A==0b11111111111_1101 : prg_Dout = 0x41; // RST
+				else : prg_Dout = prg_rom_rdata;
+			}
+		}
+
+		// FDS
+		fds.f_lpf(); // LPF有効
+
+		IRQn = 0b1;
+
+		f_PAL = f_speed_PAL;
+
+		usound_reg := // <11>
+			// 840.nsfで調整 +0.125
+		   (((0b00||mmc5.volume_L||0b0)+(0b00000||mmc5.volume_L<7:2>)) & (11#((^mute<5>)&ext_sound<3>)))
+			// +0.125
+		 + (((0b00||n106.sound||0b00)+(0b00000||n106.sound<6:1>)) & (11#((^mute<4>)&ext_sound<4>)))
+			// x1
+		 + ((0b0000||fds.sound) & (11#((^mute<3>)&ext_sound<2>)))
+			// x1
+		 + ((0b00||vrc6.sound||0b00) & (11#((^mute<2>)&ext_sound<0>)))
+			// +0.125
+		 + (((0b00||sn5b.sound)+(0b0000||sn5b.sound<8:2>)) & (11#((^mute<1>)&ext_sound<5>)));
+		usound = usound_reg;
+
+//		ssound = // <14s>
+//			(14#vrc7.sound) & (14#^mute<0>); // <13s>
+		// 316.nsfで調整 -0.125 2017/06/18
+		vrc7_usound = (^vrc7.sound<12>) || vrc7.sound<11:0>;
+		ssound = // <14u>
+			(0b0 || (vrc7_usound - (0b00||vrc7_usound<12:2>))) & (14#((^mute<0>)&ext_sound<1>)); // <13s>
+
+		title_str = title_str_reg;
+		title_length = title_length_reg;
+		artist_str = artist_str_reg;
+
+		ack = ^attach_stg.do;
+
+		set_ok = set_ok_reg;
+
+dbg = dbg_reg;
+
+	}
+
+	instruct attach par{
+		generate attach_stg.do(set_Din);
+	}
+
+	instruct prg_read any{
+		map_exrom : any{
+			// NSF
+			prg_A<12:8>==0b0_0001 : par{ // $4100
+				init_rom.read(prg_A<7:0>);
+			}
+			// N106
+			prg_A<12:10>==0b010 : par{ // $4800
+				n106.io_read(0b0);
+			}
+		}
+		map_exram : par{
+			exram_read(prg_A<12:0>);
+		}
+		map_rom : par{
+			// sel badrs<20>; 最大1MBまで
+			any(i=0;i<8;i++){
+				prg_A<14:12>==i : badrs = nsf_bank[i] || prg_A<11:0>;
+			}
+			prg_ram_read(badrs);
+		}
+	}
+
+	instruct prg_write par{
+
+		if(map_exram) exram_write(prg_A<12:0>, prg_Din);
+		
+		// map_exrom(); A_reg<15:13>==0b010 $4000～$5FFF
+
+		// $5FF8 ～ $5FFF バンク切り替え
+		if(map_exrom & /&prg_A<12:3>) any(i=0;i<8;i++){
+			prg_A<2:0>==i : nsf_bank[i] := prg_Din;
+		}
+
+		// MMC5 $5000 ～ $5015 サウンド設定
+		if(map_exrom & (prg_A<12:5>==0b10000000)){
+			mmc5.io_write(prg_A<4:0>, prg_Din);
+		}
+
+		// N106 $4800, $F800
+		if(map_exrom & (prg_A<12:0>==0b0_1000_0000_0000)){ // $4800
+			n106.io_write(0b0, prg_Din);
+		}
+		if(map_rom & (prg_A<14:0>==0b111_1000_0000_0000)){ // $F800
+			n106.io_write(0b1, prg_Din);
+		}
+
+		// FDS $4020 ～ $40FF
+		if(map_exrom & (prg_A<12:8>==0b00000)){ // $4000
+			fds.io_write(prg_A<7:0>, prg_Din);
+		}
+
+		// VRC6 $9000-2 $A000-2 $B000-2
+		if(map_rom & (prg_A<14>==0b0) & (prg_A<11:2>==0b0000000000)){
+			vrc6.io_write(prg_A<13:12>, prg_A<1:0>, prg_Din);
+		}
+
+		// SN5B $C000, $E000
+		if(map_rom & (prg_A<14:0>==0b100_0000_0000_0000)){ // $C000
+			sn5b.io_write(0b0, prg_Din);
+		}
+		if(map_rom & (prg_A<14:0>==0b110_0000_0000_0000)){ // $E000
+			sn5b.io_write(0b1, prg_Din);
+		}
+
+		// VRC7 $9010, $9030
+		if(map_rom & (prg_A<14:0>==0b001_0000_0001_0000)){ // $9010
+			vrc7.write(0b0, prg_Din);
+		}
+		if(map_rom & (prg_A<14:0>==0b001_0000_0011_0000)){ // $9030
+			vrc7.write(0b1, prg_Din);
+		}
+	}
+
+	// 約1.789MHz
+	instruct Phi par{
+		if(ext_sound<0>) vrc6.run();
+		if(ext_sound<2>)  fds.run();
+		if(ext_sound<3>) mmc5.run();
+		if(ext_sound<4>) n106.run();
+		if(ext_sound<5>) sn5b.run();
+	}
+
+	instruct run3580 par{
+		if(ext_sound<1>) vrc7.run();
+	}
+
+	instruct ready par{
+		mmc5.ready();
+		n106.ready();
+		fds.ready();
+		vrc6.ready();
+		sn5b.ready();
+		vrc7.ready();
+		speed_count := 1;
+	}
+
+	instruct tim1MHz if(nmi_on & ^ready){
+// NTSC 16666
+// PAL  20000
+		sel speed_max<16>;
+		if(f_speed_PAL){
+			speed_max = speed_PAL_H || speed_PAL_L;
+		}
+		else{
+			speed_max = speed_NTSC_H || speed_NTSC_L;
+		}
+		if(speed_count==speed_max){
+			NMI_out();
+			speed_count := 1;
+		}
+		else speed_count++;
+	}
+
+	instruct mmc5.note_on mmc5_note_on();
+	instruct n106.note_on n106_note_on();
+	instruct fds.note_on fds_note_on();
+	instruct vrc6.note_on vrc6_note_on();
+	instruct sn5b.note_on sn5b_note_on();
+	instruct vrc7.note_on vrc7_note_on();
+
+	stage attach_stg {
+reg_wr sum<8>;
+		reg_wr hA<8>, pBank<8>, pA<20>; // pA<8+12>
+		reg_wr bank_check, recv_ok;
+		reg_wr LoadAdrs_low<8>, LoadAdrs_high<7>, banks<8>;
+		state_name init,head,prgw,rend,oend;
+		first_state init;
+		par{
+			finish;
+		}
+		state init par{
+			hA := 0x00;
+			title_length_reg := 0;
+			title_str_end := 0b0;
+			artist_str_end := 0b0;
+			bank_check := 0;
+			pBank := 0;
+			recv_ok := 0b0;
+			nmi_on := 0;
+sum := 0x00;
+			goto head;
+		}
+		state head par{ // 128バイト書き込み
+			any{
+				hA==0x07 : init_rom.write(0x15, set_data-1); // 曲指定(UART,SDカード共通)
+				hA==0x08 : LoadAdrs_low  := set_data;
+				hA==0x09 : LoadAdrs_high := set_data<6:0>;
+				hA==0x0A : init_rom.write(0x19, set_data); // InitAdrs
+				hA==0x0B : init_rom.write(0x1A, set_data);
+				hA==0x0C : init_rom.write(0x36, set_data); // PlayAdrs
+				hA==0x0D : init_rom.write(0x37, set_data);
+				(hA==0x0E) | (hA==0x0F) | (hA==0x10) | (hA==0x11) |
+				(hA==0x12) | (hA==0x13) | (hA==0x14) | (hA==0x15) |
+				(hA==0x16) | (hA==0x17) | (hA==0x18) | (hA==0x19) |
+				(hA==0x1A) | (hA==0x1B) | (hA==0x1C) | (hA==0x1D) |
+				(hA==0x1E) | (hA==0x1F) | (hA==0x20) | (hA==0x21) |
+				(hA==0x22) | (hA==0x23) | (hA==0x24) | (hA==0x25) |
+				(hA==0x26) | (hA==0x27) | (hA==0x28) | (hA==0x29) |
+				(hA==0x2A) | (hA==0x2B) | (hA==0x2C) | (hA==0x2D) : par{
+					if((^title_str_end) & (set_data!=0x00) & (hA!=0x2D)){
+						title_str_reg := title_str_reg<247:0> || set_data;
+						title_length_reg++;
+					}
+					else{
+						title_str_reg := title_str_reg<247:0> || ' ';
+						title_str_end := 0b1;
+					}
+				}
+				(hA==0x2E) | (hA==0x2F) | (hA==0x30) | (hA==0x31) |
+				(hA==0x32) | (hA==0x33) | (hA==0x34) | (hA==0x35) |
+				(hA==0x36) | (hA==0x37) | (hA==0x38) | (hA==0x39) |
+				(hA==0x3A) | (hA==0x3B) | (hA==0x3C) | (hA==0x3D) : par{
+			/*	(hA==0x3E) | (hA==0x3F) | (hA==0x40) | (hA==0x41) |
+				(hA==0x42) | (hA==0x43) | (hA==0x44) | (hA==0x45) |
+				(hA==0x46) | (hA==0x47) | (hA==0x48) | (hA==0x49) |
+				(hA==0x4A) | (hA==0x4B) | (hA==0x4C) | (hA==0x4D) : par{*/
+					if((^artist_str_end) & (set_data!=0x00) & (hA!=0x3D)){
+						artist_str_reg := artist_str_reg<119:0> || set_data;
+					}
+					else{
+						artist_str_reg := artist_str_reg<119:0> || ' ';
+						artist_str_end := 0b1;
+					}
+				}
+				hA==0x6E : speed_NTSC_L := set_data;
+				hA==0x6F : speed_NTSC_H := set_data;
+				hA==0x70 : nsf_bank_0 := set_data;
+				hA==0x71 : nsf_bank_1 := set_data;
+				hA==0x72 : nsf_bank_2 := set_data;
+				hA==0x73 : nsf_bank_3 := set_data;
+				hA==0x74 : nsf_bank_4 := set_data;
+				hA==0x75 : nsf_bank_5 := set_data;
+				hA==0x76 : nsf_bank_6 := set_data;
+				hA==0x77 : nsf_bank_7 := set_data;
+				hA==0x78 : speed_PAL_L := set_data;
+				hA==0x79 : speed_PAL_H := set_data;
+				hA==0x7A : par{ // PAL速度のNSFがなさそう?2016/10/08
+					f_speed_PAL := set_data<0>;
+					// FamiTrackerで作ったものはLDXが必須
+					init_rom.write(0x17, set_data & 0x01); // LDX 0:NTSC, 1:PAL
+				}
+				hA==0x7B : ext_sound := set_data;
+				hA==0x7E : if(set_data<0>) recv_ok := 0b1; // 予約領域、1ならUARTから転送済み
+				hA==0x7F : banks := set_data; // 独自拡張、UARTからバンク数をセット
+			}
+
+			if(hA<6:3>==0b1110) bank_check := bank_check | /|set_data; // 0x70-0x77
+			if(^bank_check) any(i=0;i<8;i++){ // 0x78-0x7F
+				hA<6:0>==0b1111||i : nsf_bank[i] := 0b00000 || i;
+			}
+sum += set_data;
+			hA++;
+			if(/&hA<6:0>){
+				pA := 0b00000 || LoadAdrs_high || LoadAdrs_low;
+				if(recv_ok) goto rend;
+				else goto prgw;
+			}
+		}
+		state prgw par{
+sum += set_data;
+			prg_ram_write(pA, set_data);
+			pA++;
+			// UARTからの読み込み
+			if(pA<11:0>==(LoadAdrs_high<3:0>||LoadAdrs_low)){
+				// +1バイト余分に書き込み
+				// UARTからの転送はbanksにバンク数が入っている
+				if((banks!=0) & (pBank==banks)) goto rend;
+				pBank++;
+			}
+			// SDカードからの読み込みはbanks=0x00
+			if((banks==0x00) & set_eof) goto rend; // NG 0x1381
+			// 1MBサポート(未テスト)
+			if(/&pA) goto rend;
+		}
+		state rend par{
+//dbg_reg := 0x00 || sum;
+			set_ok_reg := 0b1;
+			goto oend;
+		}
+		state oend par{
+			set_ok_reg := 0b0;
+			nmi_on := 1;
+			goto init;
+		}
+	}
+
+}

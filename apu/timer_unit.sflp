@@ -1,0 +1,46 @@
+
+// Timer Unit
+// 全てのチャンネルで使用
+
+// SQE 11bit
+// TRI 11bit
+// NIS 12bit
+// DMC  9bit
+
+circuit timer_unit
+{
+	input period<12>;
+	instrin exc, rst;
+	instrout clock_out;
+	reg_wr rst_tim;
+	reg_wr timer_div<12>;
+
+	stage_name Timer { task do(); }
+
+	instruct rst par{
+		rst_tim := 0b1;
+	}
+
+	// 1.79MHz
+	instruct exc generate Timer.do();
+
+	stage Timer { // mpu.run + 1clk
+		par{
+			if(rst_tim){
+				rst_tim := 0b0;
+				timer_div := period;
+			}
+			else{
+				if(timer_div!=0){
+					timer_div--;
+				}
+				else{
+					timer_div := period;
+					clock_out();
+				}
+			}
+			finish;
+		}
+	}
+
+}

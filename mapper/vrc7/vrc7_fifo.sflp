@@ -1,0 +1,171 @@
+
+// VRC7 VM2413 FIFO Interface
+
+declare vm2413_interface
+{
+	instrin run, ready;
+	input A, D<8>;
+	instrin write;
+	output sound<10>;
+	instr_arg write(A, D);
+}
+
+#define PREFIX_DPRAM
+
+#ifdef PREFIX_DPRAM
+%i "../../../../hdl/dpram_16x256.h"
+#endif
+
+circuit vrc7_fifo
+{
+	instrin run, ready;
+
+	input A, D<8>;
+	instrin write(A, D);
+
+#ifndef PREFIX_DPRAM
+	mem cells[256]<9>;
+#endif
+#ifdef PREFIX_DPRAM
+	dpram_16x256 dpram;
+#endif
+	reg_wr wadrs<8>, radrs<8>;
+	reg_wr wdata<9>;
+
+	vm2413_interface vm2413inf;
+	reg_wr count<7>;
+
+	output sound<13>;
+	reg_wr sound_reg<13>;
+	instrout note_on;
+
+	stage_name opll_write { task do(); }
+	stage_name opll_sound { task do(); }
+
+	par{
+		sound = sound_reg;
+//		sound = 0b000 || vm2413inf.sound;
+	}
+
+// CPUサイクル約1.78MHz×2でwriteされる
+	instruct write par{
+#ifndef PREFIX_DPRAM
+		cells[wadrs] := A || D;
+#endif
+#ifdef PREFIX_DPRAM
+		dpram.write(wadrs, 0b0000000||A||D);
+#endif
+		wadrs++;
+	}
+
+// VM2413の約3.5MHzで起動
+	instruct run par{
+		vm2413inf.run();
+		generate opll_write.do();
+		generate opll_sound.do();
+	}
+
+	instruct ready par{
+		radrs := 0x00;
+		wadrs := 0x00;
+		sound_reg := 0b0000000000000;
+		vm2413inf.ready();
+	}
+
+	stage opll_write {
+		state_name read_st, write_st, wait_st;
+		first_state read_st;
+		finish;
+		state read_st par{
+#ifndef PREFIX_DPRAM
+			if(radrs!=wadrs){ // sfl2vhで変換するとModelSimで構文エラー
+				wdata := cells[radrs];
+#endif
+#ifdef PREFIX_DPRAM
+			if(/|(radrs@wadrs)){
+				dpram.read(radrs);
+#endif
+				goto write_st;
+			}
+		}
+		state write_st par{
+			radrs++;
+#ifndef PREFIX_DPRAM
+			vm2413inf.write(wdata<8>, wdata<7:0>);
+#endif
+#ifdef PREFIX_DPRAM
+			vm2413inf.write(dpram.dout<8>, dpram.dout<7:0>);
+#endif
+			if(vm2413inf.A) count := 0b1000111; // 72-1
+// from doc.
+//			if(vm2413inf.A) count := 0b1010011; // 84-1
+//			else            count := 0b0001011; // 12-1
+			note_on();
+			goto wait_st;
+		}
+		state wait_st par{
+			if(count!=0) count--;
+			else goto read_st;
+		}
+	}
+
+	stage opll_sound {
+		sel vmsound_signed<10>;
+		reg_wr vmsound_signed_old<10>;
+		reg_wr sound_total<13>;
+		reg_wr chcount<7>;
+		par{
+			finish;
+
+			// -0x200 vm2413inf.soundを0～1023から-512～511に変換
+			vmsound_signed = (^vm2413inf.sound<9>) || vm2413inf.sound<8:0>;
+/*
+// ウィンドウずれにより雑音が乗る
+			if(chcount==0b1000111){
+				sound_reg := sound_total<14:2>;
+				sound_total := 0b000000000000000;
+				chcount := 0b0000000;
+			}
+			else{
+				// <10s>×9ch×3st＝<15s>
+				sound_total += (15#vmsound_signed);
+				chcount++;
+			}
+*/
+/*
+// 1/4の確立で無音になる
+			if(chcount==0b1000111){
+				sound_reg := sound_total;
+				sound_total := 0b0000000000000;
+				chcount := 0b0000000;
+			}
+			else{
+				if(/&chcount<1:0>){
+					// 9ch分を符号拡張して加算
+					// nsfでは8chのみ使用 <10s>×8ch＝<13s>
+					sound_total += (13#vmsound_signed);
+				}
+				chcount++;
+			}
+*/
+// これがベスト、前サイクルで無音だったら加算
+			vmsound_signed_old := vmsound_signed;
+			if(chcount==0b1000111){
+				sound_reg := sound_total;
+				sound_total := 0b0000000000000;
+				chcount := 0b0000000;
+			}
+			else{
+				if(vmsound_signed_old==0b0000000000){
+					// 9ch分を符号拡張して加算
+					// nsfでは8chのみ使用 <10s>×8ch＝<13s>
+					sound_total += (13#vmsound_signed);
+				//	if(vmsound_signed!=0) note_on();
+				}
+				chcount++;
+			}
+
+		}
+	}
+
+}
