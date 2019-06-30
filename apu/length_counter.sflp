@@ -15,15 +15,13 @@ circuit length_counter
 	reg_wr length_count<8>;
 	reg_wr f_halt;
 
-	par{
 /*
-		if(reset){
-			reset := 0b0;
-			length_count := 0x01;
-		}
-*/
-		f_length = /|length_count;
+	if(reset){
+		reset := 0b0;
+		length_count := 0x01;
 	}
+*/
+	f_length = /|length_count;
 
 	instruct set par{
 	//	if(^f_halt)

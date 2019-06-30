@@ -42,16 +42,13 @@ circuit triangle_ch
 	stage_name LinearCounter { task do(); }
 	stage_name TriSequencer { task do(); }
 
-	par{
-		timer.period = 0b0 || period_high || period_low;
+	timer.period = 0b0 || period_high || period_low;
 
-		f_linear = /|linear_count;
+	f_linear = /|linear_count;
+	f_length = len.f_length;
 
-		f_length = len.f_length;
-
-		if(tri_vol<4>) volume =  tri_vol<3:0>;
-		else           volume = ^tri_vol<3:0>;
-	}
+	if(tri_vol<4>) volume =  tri_vol<3:0>;
+	else           volume = ^tri_vol<3:0>;
 
 	instruct write par{
 		switch(adrs){

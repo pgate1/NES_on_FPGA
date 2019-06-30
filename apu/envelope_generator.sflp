@@ -11,10 +11,8 @@ circuit envelope_generator
 	reg_wr f_loop, f_disable, f_halt;
 	reg_wr e_count<4>, reload<4>;	// wr‚¶‚á‚È‚­‚Æ‚à—Ç‚¢?
 
-	par{
-		if(f_disable) count = reload;
-		else          count = e_count;
-	}
+	if(f_disable) count = reload;
+	else          count = e_count;
 
 	instruct set par{
 		reload    := ctrl<3:0>;

@@ -60,15 +60,10 @@ output dbg<8>;
 	stage_name delta_buf_stg { task do(); }
 	stage_name delta_stg { task do(); }
 
-	par{
-		timer.period = 0b000 || time_table(period_index).time_max;
-
-		f_rest = /|rest_count;
-		IRQ = irq_reg;
-
-		volume = delta_count || delta_count0;
+	f_rest = /|rest_count;
+	IRQ = irq_reg;
+	volume = delta_count || delta_count0;
 dbg = rest_count<7:0>;
-	}
 
 	instruct write par{ // mpu.run+2clk
 		switch(adrs){
@@ -152,6 +147,8 @@ dbg = rest_count<7:0>;
 		case 0xE: time_max =  72; // 0x048;
 		case 0xF: time_max =  54; // 0x036;
 	}
+
+	timer.period = 0b000 || time_table(period_index).time_max;
 
 	// 外部からのmpuクロックで動作 1.789MHz
 	instruct run timer.exc();

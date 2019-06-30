@@ -52,27 +52,24 @@ circuit square_ch
 	stage_name SweepUnit { task do(); }
 	stage_name SqSequencer { task do(); }
 
-	par{
-		period = period_high || period_low;
+	period = period_high || period_low;
 
-		sweep_var = period<10:0> >> sweep_shift;
-
-		sweep_over = (period<11:3>==0b000000000) | period<11>;
+	sweep_var = period<10:0> >> sweep_shift;
+	sweep_over = (period<11:3>==0b000000000) | period<11>;
 // 11bitカウントで最低約54.6Hzまで出せる
-	//	timer.period = 0b0 || period<10:0>; // for seq_count 4bit
-		timer.period = period<10:0> || 0b0; // for seq_count 3bit
+//	timer.period = 0b0 || period<10:0>; // for seq_count 4bit
+	timer.period = period<10:0> || 0b0; // for seq_count 3bit
 
-		f_length = len.f_length;
+	f_length = len.f_length;
 
 // seq_sideのHLを変えても音質的な変化は見られなかった
 // sweep overによる音ポーズはsweep有効無効に関わらず働く
-		vol_out = (^sweep_over) & seq_side & f_length;
-		volume = env.count & (4#vol_out);
-		//old  volume = env.count & (4#((^sweep_over) & seq_side & f_length));
+	vol_out = (^sweep_over) & seq_side & f_length;
+	volume = env.count & (4#vol_out);
+	//old  volume = env.count & (4#((^sweep_over) & seq_side & f_length));
 
-	//	vol_out_pre := vol_out;
-	//	if((vol_out_pre||vol_out)==0b01) tim_out();
-	}
+//	vol_out_pre := vol_out;
+//	if((vol_out_pre||vol_out)==0b01) tim_out();
 
 	instruct init par{
 		sweep_enable := 0b0;

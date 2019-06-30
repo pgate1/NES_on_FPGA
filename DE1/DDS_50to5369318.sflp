@@ -10,17 +10,15 @@ circuit DDS_50to5369318
 	instrout run;
 	sel sa<22>;
 
-	par{
-		add = 218125;
-		max = 2031217;
+	add = 218125;
+	max = 2031217;
 
-		sa = count - (0b0||max);
-		if(sa<21>){ // count < max
-			count += (0b0000 || add);
-		}
-		else{
-			count := sa + (0b0000 || add);
-			run();
-		}
+	sa = count - (0b0||max);
+	if(sa<21>){ // count < max
+		count += (0b0000 || add);
+	}
+	else{
+		count := sa + (0b0000 || add);
+		run();
 	}
 }

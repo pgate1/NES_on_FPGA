@@ -19,10 +19,8 @@ circuit alu2
 	instrself reqv;
 	sel b_base<8>, calc_a<9>, calc_sel<9>;
 
-	par{
-		calc_a = (0b0||a) + (0x00||cin);
-		calc_sel = calc_a + (0b0||b_base);
-	}
+	calc_a = (0b0||a) + (0x00||cin);
+	calc_sel = calc_a + (0b0||b_base);
 
 	instruct reqv par{
 		v = (^(a<7>@b_base<7>)) & (a<7>@dout<7>);
