@@ -46,6 +46,8 @@ circuit Mapper004
 
 	instrin init;
 
+instrin hblank;
+
 	input n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
 	reg_wr fMirroringType_reg;
 
@@ -61,7 +63,7 @@ circuit Mapper004
 	reg_wr command<3>;
 
 	reg_wr f_draw, pre_chr_A12;
-	instrself hblank;
+	instrself hblank_begin;
 	reg_wr irq_counter<8>, irq_latch<8>, irq_enabled;
 
 	sel chr_read_bank<8>;
@@ -235,8 +237,8 @@ circuit Mapper004
 			chr_ram_read(chr_read_bank || chr_A<9:0>);
 		}
 
-	//	if(chr_A<13>==0b0) f_draw := 0b1;
-		if(chr_A<12> & (pre_chr_A12==0b0)) hblank();
+		if(chr_A<13>==0b0) f_draw := 0b1;
+	//	if(chr_A<12> & ^pre_chr_A12) hblank_begin();
 		pre_chr_A12 := chr_A<12>;
 	}
 
@@ -266,9 +268,9 @@ circuit Mapper004
 		}
 */
 //		if(irq_enabled & (^vblank)){
-//		if(irq_enabled & f_draw){
-		if(irq_enabled){
-			if(irq_counter==0x01){
+		if(irq_enabled & f_draw){
+//		if(irq_enabled){
+			if(irq_counter==0x00){
 				irq_counter := irq_latch;
 				IRQn_reg := 0b0;
 			}

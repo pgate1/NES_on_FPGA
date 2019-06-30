@@ -219,7 +219,7 @@ input dbg_in<8>;
 			+ mapper_019.usound
 			+ mapper_069.usound;
 
-		sound_L = // <15s>
+		sound_L = // <15u>
 			(0b0 || usound_L || 0b000) // <11>
 			+ (0b0 || mapper_nsf.ssound); // <14u> VRC7
 		sound_R = 
@@ -239,7 +239,7 @@ dbg = mapper_nsf.dbg;
 			+ mapper_019.usound // <11>
 			+ mapper_069.usound;
 
-		sound_L = // <15s>
+		sound_L = // <15u>
 			(0b0 || usound_L || 0b000); // <11>
 //		   + (15#mapper.ssound); // <14s>
 		sound_R = 
@@ -683,6 +683,7 @@ dbg = mapper_nsf.dbg;
 #endif
 
 	instruct hblank par{
+		mapper_004.hblank();
 		mapper_016.hblank();
 		mapper_019.hblank();
 		mapper_023.hblank();
