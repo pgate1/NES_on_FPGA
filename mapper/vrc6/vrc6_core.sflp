@@ -18,14 +18,11 @@ circuit vrc6_core
 	sq_ch sq0, sq1;
 	saw_ch saw;
 
-	par{
-		sound_reg :=
-		    (0b000||sq0.sound) +
-		    (0b000||sq1.sound) +
-		      (0b0||saw.sound);
-
-		sound = sound_reg;
-	}
+	sound_reg :=
+	    (0b000||sq0.sound) +
+	    (0b000||sq1.sound) +
+	      (0b0||saw.sound);
+	sound = sound_reg;
 
 	instruct ready par{
 		sq0.ready();

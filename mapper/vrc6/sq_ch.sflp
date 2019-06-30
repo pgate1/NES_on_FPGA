@@ -20,10 +20,8 @@ circuit sq_ch
 	stage_name Divider { task do(); }
 	stage_name Sequencer { task do(); }
 
-	par{
-		if((enable & seq_side) | gate) sound = volume;
-		else sound = 0b0000;
-	}
+	if((enable & seq_side) | gate) sound = volume;
+	else sound = 0b0000;
 
 	instruct ready par{
 		enable := 0b0;

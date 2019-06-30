@@ -19,17 +19,14 @@ circuit sn_noise_gen
 
 	stage_name Divider { task do(); }
 	stage_name Sequencer { task do(); }
-
-	par{
 /*
-		if(reset){
-			reset := 0b0;
-		//	x := 0x0000 || 0b1;
-		}
-*/
-		sound = x<0>;
-	//	sound = sound_reg;
+	if(reset){
+		reset := 0b0;
+	//	x := 0x0000 || 0b1;
 	}
+*/
+	sound = x<0>;
+//	sound = sound_reg;
 
 /*
 	instruct ready par{

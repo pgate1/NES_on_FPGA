@@ -19,10 +19,7 @@ circuit sn_tone_gen
 	stage_name Divider { task do(); }
 	stage_name Sequencer { task do(); }
 
-	par{
-		sound = seq_side;
-	}
-
+	sound = seq_side;
 /*
 	instruct ready par{
 		seq_side := 0b0;

@@ -42,10 +42,8 @@ circuit vrc7_fifo
 	stage_name opll_write { task do(); }
 	stage_name opll_sound { task do(); }
 
-	par{
-		sound = sound_reg;
-//		sound = 0b000 || vm2413inf.sound;
-	}
+	sound = sound_reg;
+//	sound = 0b000 || vm2413inf.sound;
 
 // CPUƒTƒCƒNƒ‹–ñ1.78MHz~2‚Åwrite‚³‚ê‚é
 	instruct write par{

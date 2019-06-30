@@ -16,9 +16,7 @@ circuit sn_envelope_gen
 	stage_name Divider { task do(); }
 	stage_name Sequencer { task do(); }
 
-	par{
-		dout = 0b0000;//gain;
-	}
+	dout = 0b0000;//gain;
 
 //	instruct ready par{
 //	}
