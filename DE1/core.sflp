@@ -16,6 +16,7 @@
 %i "../../../DE1/dac_ctrl.h"
 %i "../../../DE1/sdcard_ctrl.h"
 %i "../../../hdl/fat16.h"
+%i "../../../DE1/keyboard_ctrl.h"
 %i "../../../DE1/vjtag_uart.h"
 
 %i "../nes_core.h"
@@ -69,6 +70,10 @@ circuit core
 	input  SD_DAT; // SD Card Data
 	sdcard_ctrl sdcard;
 	fat16 fat;
+//--------------------- PS/2 -------------------------------
+	input PS2_CLK, PS2_DAT;
+	keyboard_ctrl kb;
+	mem keys[128];
 //--------------------- VGA --------------------------------
 	output VGA_HS, VGA_VS;
 	output VGA_R<4>, VGA_G<4>, VGA_B<4>;
@@ -84,7 +89,7 @@ circuit core
 //--------------------- PS PAD ------------------------
 	output PAD_SEL1n, PAD_SEL2n, PAD_CLK, PAD_CMD;
 	input PAD_ACKn, PAD_DAT;
-	PSPAD_ctrl pad;
+//	PSPAD_ctrl pad;
 	sel psw_pad<8>;
 //------------------------------------------------------
 
@@ -114,8 +119,9 @@ circuit core
 	stage_name nes_line { task do(); }
 	stage_name clock3580k { task do(); }
 	stage_name clock25M { task do(); }
-	stage_name clk500k { task do(); }
-	stage_name uart2ram { task do(); }
+	stage_name key2btn { task do(); }
+//	stage_name clk500k { task do(); }
+//	stage_name uart2ram { task do(); }
 	stage_name key_seek { task next(); task back(); }
 	stage_name card2ram { task do(); }
 	stage_name vjtag2ram { task do(); }
@@ -126,8 +132,11 @@ circuit core
 	//	generate clk500k.do();
 		generate clock25M.do();
 		generate card2ram.do();
+		generate key2btn.do();
 		file_num := 0;
 	}
+
+	UART_TXD = 0b1; // LED off
 
 	par(i=0;i<4;i++){
 		kcmask[i].kin = ^KEY<i>; key[i] = kcmask[i].kout;
@@ -167,12 +176,15 @@ circuit core
 
 	fat.sack = sdcard.ack;
 	fat.sdata = sdcard.rdata;
-
+/*
 	PAD_SEL1n = pad.seln;
 	PAD_SEL2n = 0b1;
 	PAD_CLK = pad.clk;
 	PAD_CMD = pad.cmd;
 	pad.data = PAD_DAT;
+*/
+	kb.ps2Clk = PS2_CLK;
+	kb.ps2Data = PS2_DAT;
 
 	vga.vt_su = 1;
 	vga.vt_vu = 31;
@@ -209,8 +221,8 @@ circuit core
 	if(^prg_read_ok) nes.ready();
 
 	nes.f_stereo = ^SW<0>;
-	nes.speed = pad.data_ref<2>;
-	nes.stop  = pad.data_ref<3>;
+	nes.speed = 0b0;//pad.data_ref<2>;
+	nes.stop  = 0b0;//pad.data_ref<3>;
 	nes.f_nsf = cart.f_nsf;
 	instruct cart.NMI_out nes.nsf_NMI();
 
@@ -292,7 +304,8 @@ circuit core
 	          || (pad.data_ref<7> | pad.data_ref<5>) )
 				| psw_pad;
 */
-	nes.pad1P = psw_pad;
+	nes.pad1P = psw_pad
+		 | (keys[0x74] || keys[0x6B] || keys[0x72] || keys[0x75] || keys[0x5A] || keys[0x29] || keys[0x1A] || keys[0x22]);
 	//プッシュスイッチでマリオ
 	psw_pad = /*key_2*/SW<2> || key_3 || 0b0 || SW<1> || SW<0> || SW<3> || 0b0 || key_1;
 
@@ -305,7 +318,8 @@ circuit core
 	          || (pad2.data_ref<7> | pad2.data_ref<5>) );
 */
 	// ソフトリセット
-	if(pad.data_cur<0>&pad.data_cur<3>&/&pad.data_ref<3:2>){
+//	if(pad.data_cur<0>&pad.data_cur<3>&/&pad.data_ref<3:2>){
+	if(/&nes.pad1P<3:2>){
 		nes.soft_reset();
 		cart.soft_reset();
 	}
@@ -314,8 +328,9 @@ circuit core
 	// ref : □|×|○|△|R1|L1|R2|L2
 	LEDR = 
 	//	(0b00 || (pad.data_cur | pad.data_ref | pad.data_cur | pad.data_ref))
+		(0b00 || nes.pad1P)
 	//	| (nes.dbg || fat.err || ^fat.ack)
-		 (dac_apu.DACout || dac_mmc5.DACout || dac_n106.DACout || dac_fds.DACout
+		| (dac_apu.DACout || dac_mmc5.DACout || dac_n106.DACout || dac_fds.DACout
 			|| dac_vrc6.DACout || dac_sn5b.DACout || dac_vrc7.DACout || 0b000)
 		;
 
@@ -394,11 +409,11 @@ circuit core
 		dis.bank_change();
 		generate nes_line.do();
 	}
-
+/*
 	instruct vga.nes_vsync par{
 		pad.key_get();
 	}
-
+*/
 	instruct dds_ntsc.run par{ // 5.369318MHz
 		if(prg_read_ok /*& ^cart.f_nsf_PAL*/){
 			nes.run();
@@ -410,10 +425,10 @@ circuit core
 	}
 
 	if(cart.f_nsf) alt{
-		key_2 | pad.data_ref<0> : par{ // 進む
+		key_2 /*| pad.data_ref<0>*/ : par{ // 進む
 			generate key_seek.next();
 		}
-		key_1 | pad.data_ref<1> : par{ // 戻る
+		key_1 /*| pad.data_ref<1>*/ : par{ // 戻る
 			generate key_seek.back();
 		}
 	}
@@ -439,7 +454,7 @@ circuit core
 			if(0b0) finish; // 未使用
 		}
 	}
-
+/*
 	//	PSPADプロトコルは250kHzなので倍の500kHzで
 	//	立下りと立ち上がりを生成
 	stage clk500k {
@@ -453,7 +468,7 @@ circuit core
 			if(0b0) finish; // 未使用
 		}
 	}
-
+*/
 	stage nes_line {
 		reg_wr pixel_count<9>;
 		par{
@@ -483,6 +498,21 @@ circuit core
 		}
 	}
 
+	stage key2btn {
+		reg_ws push;
+		par{
+			if(kb.scanok) switch(kb.scancode){
+				case 0xE0: ; // 無視
+				case 0xF0: push := 0b0;
+				default: par{
+					keys[kb.scancode<6:0>] := push;
+					push := 0b1;
+				}
+			}
+			if(0b0) finish;
+		}
+	}
+
 	stage key_seek {
 		state_name iwait,st1,st2;
 		first_state iwait;
@@ -499,8 +529,8 @@ circuit core
 			goto st2;
 		}
 		state st2 if(^card2ram.do){
-			if((key_seek.next & (^key_2) & (^pad.data_ref<0>))
-			 | (key_seek.back & (^key_1) & (^pad.data_ref<1>))){
+			if((key_seek.next & (^key_2) /*& (^pad.data_ref<0>)*/)
+			 | (key_seek.back & (^key_1) /*& (^pad.data_ref<1>)*/)){
 				goto iwait;
 				finish;
 			}
