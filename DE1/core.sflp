@@ -4,7 +4,7 @@
 	NSF Player on FPGA feat. DE1
 	Copyright (c) 2004 pgate1.
 
-	prg : SRAM or SDRAM
+	prg : SDRAM
 	chr : SRAM
 */
 
@@ -109,7 +109,6 @@ circuit core
 	reg_wr note_apu<7>, note_sq1<7>, note_sq2<7>, note_tri<7>, note_noi<7>, note_dmc<7>;
 	reg_wr note_mmc5<7>, note_n106<7>, note_fds<7>, note_vrc6<7>, note_sn5b<7>, note_vrc7<7>;
 
-	reg_wr notused;
 	DDS_50to5369318 dds_ntsc;
 
 	stage_name nes_line { task do(); }
@@ -213,10 +212,10 @@ circuit core
 	nes.speed = pad.data_ref<2>;
 	nes.stop  = pad.data_ref<3>;
 	nes.f_nsf = cart.f_nsf;
-	if(cart.NMI_out) nes.nsf_NMI();
+	instruct cart.NMI_out nes.nsf_NMI();
 
 	if(^prg_read_ok) cart.ready();
-	if(nes.clk_out) cart.Phi();
+	instruct nes.clk_out cart.Phi();
 
 	if(cnt_1MHz==50){
 		cart.tim1MHz();
@@ -256,7 +255,6 @@ circuit core
 	instruct cart.note_vrc6 if(^cart.mute<2>) note_vrc6 := 0b1111111;
 	instruct cart.note_sn5b if(^cart.mute<1>) note_sn5b := 0b1111111;
 	instruct cart.note_vrc7 if(^cart.mute<0>) note_vrc7 := 0b1111111;
-
 	note_count++;
 	if(/&note_count){
 		if(note_apu!=0) note_apu--;
@@ -324,8 +322,8 @@ circuit core
 	LEDG = dac_sq1.DACout || dac_sq2.DACout || dac_tri.DACout || dac_noi.DACout || dac_dmc.DACout || 0b000; //nes.ir_out;
 
 	alt{
-	//	/|halt_code : seg = 0x00 || halt_code;
-		/|nes.halt_out : seg = 0x00 || nes.halt_out;
+	//	halt_code!=0 : seg = 0x00 || halt_code;
+		nes.halt_out!=0 : seg = 0x00 || nes.halt_out;
 		else : seg = nes.pc_out;
 	}
 //	seg = cart.dbg;
@@ -354,7 +352,8 @@ circuit core
 
 	cart.chr_A = nes.PA;
 	instruct nes.read_chr par{
-		cart.chr_read();
+		// romÉZÉbÉgéûÇ…chr_romì«Ç›çûÇ›ñhé~
+		if(prg_read_ok) cart.chr_read();
 	}
 	nes.chr_din = cart.chr_Dout;
 
