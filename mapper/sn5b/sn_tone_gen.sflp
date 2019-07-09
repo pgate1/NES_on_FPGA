@@ -20,6 +20,7 @@ circuit sn_tone_gen
 	stage_name Sequencer { task do(); }
 
 	sound = seq_side;
+
 /*
 	instruct ready par{
 		seq_side := 0b0;

@@ -67,7 +67,6 @@ circuit nes_core
 
 	reg_wr sp_flag;
 	reg_wr pre_nmi;
-	reg_wr notused;
 
 	// NSF拡張
 	input f_nsf;
@@ -215,7 +214,7 @@ output dbg<16>;
 		generate mem_clear_stg.do();
 	}
 
-	instruct run if(^/|halt_out){
+	instruct run if(halt_out==0x00){
 //if(mem_clear_stg.do) halt(0x6);
 
 		if(mpu_timing<0>){ // 約1.789MHz
@@ -327,7 +326,6 @@ output dbg<16>;
 	// 50MHz/1.789772.5 = 27.9
 // OEnを使うとchrにノイズがちょっとのる?
 	stage prg_read_stg {
-		state_name st1,st1w,st2,st3,st4;
 		first_state st1;
 		state st1 par{
 			prg_RW_reg := 0b1;
@@ -388,7 +386,6 @@ output dbg<16>;
 // レベルセンシティブではなさそう
 // RWの立ち上がりっぽい
 	stage prg_write_stg {
-		state_name st1,st1w,st1ww,st2,st3,st4;
 		first_state st1;
 		state st1 par{
 			prg_RW_reg := 0b0;
@@ -427,7 +424,6 @@ output dbg<16>;
 //	DMA中にAPUのDMC読み込みの可能性があるためread_waitが必要。
 //	DMAは524サイクル必要。
 	stage dma_run {
-		state_name st_pre, st_read, st_write;
 		first_state st_pre;
 		finish;
 		state st_pre par{
@@ -461,7 +457,6 @@ output dbg<16>;
 
 	// リターンバック 7 + 10.5 = 17.5ns
 	stage vram_read_stg {
-		state_name st1,st2,st3,st4;
 		first_state st1;
 		state st1 goto st2;	// リターンバック信号待ち1
 		state st2 goto st3;	// リターンバック信号待ち2
@@ -477,7 +472,6 @@ output dbg<16>;
 
 	// 50MHz: 18 cycle (17でマリオok,3NG)
 	stage chr_read_stg {
-		state_name st1,st2,st3,st4,st5,st6;
 		first_state st1;
 		state st1 par{
 			read_chr(); // for Mappers
@@ -513,7 +507,6 @@ output dbg<16>;
 	}
 
 	stage vram_write_stg {
-		state_name st1,st2,st3,st4;
 		first_state st1;
 		state st1 goto st2;	// リターンバック信号待ち1
 		state st2 goto st3;	// リターンバック信号待ち2
@@ -529,7 +522,6 @@ output dbg<16>;
 
 	// 50MHz: 18 cycle
 	stage chr_write_stg {
-		state_name st1,st2,st3,st4,st5;
 		first_state st1;
 		state st1 par{
 			write_chr(); // for Mappers
@@ -587,7 +579,6 @@ output dbg<16>;
 // 350ns(17.5clk)/559ns CPU cycles begin at the point where M2 goes low.
 	stage phi2_tim {
 		reg_wr phi_count<5>;
-		state_name st1,st2,st3,st4,st5;
 		first_state st1;
 		state st1 par{
 			Phi2_reg := 0b0;
@@ -619,7 +610,6 @@ output dbg<16>;
 
 	stage mem_clear_stg {
 		reg_wr init_wait<8>, mem_adrs<11>;
-		state_name stw, st1;
 		first_state stw;
 		state stw par{
 			init_wait++;

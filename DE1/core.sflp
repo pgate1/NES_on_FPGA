@@ -514,7 +514,6 @@ circuit core
 	}
 
 	stage key_seek {
-		state_name iwait,st1,st2;
 		first_state iwait;
 		state iwait par{
 			prg_read_ok := 0b0;
@@ -538,7 +537,6 @@ circuit core
 	}
 
 	stage card2ram {
-		state_name rbegin,fatr,head,reopen,maps,rend;
 		first_state rbegin;
 		state rbegin if(fat.ack){
 			prg_read_ok := 0b0;
@@ -583,7 +581,6 @@ circuit core
 	}
 
 	stage vjtag2ram {
-		state_name rbegin,maps,rend;
 		first_state rbegin;
 		finish;
 		state rbegin par{

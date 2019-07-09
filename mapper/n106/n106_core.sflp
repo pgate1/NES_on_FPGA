@@ -132,7 +132,6 @@ circuit n106_core
 		rega period[8]<19>;
 		rega widx[8]<5>;
 		reg_wr hl, value<8>;
-		state_name wcount, wread, wset, wlen, wait1, wait2;
 		first_state wcount;
 		finish;
 		state wcount par{

@@ -23,7 +23,6 @@ circuit delay_unit
 	stage delay_wr {
 		reg_wr dout_reg<8>, r_adrs<9>;
 		sel w_adrs<9>;
-		state_name st1,st2,st3,st4;
 		first_state st1;
 		par{
 			dout = dout_reg;

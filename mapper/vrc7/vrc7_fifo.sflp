@@ -25,12 +25,12 @@ circuit vrc7_fifo
 
 #ifndef PREFIX_DPRAM
 	mem cells[256]<9>;
+	reg_wr wdata<9>;
 #endif
 #ifdef PREFIX_DPRAM
 	dpram_16x256 dpram;
 #endif
 	reg_wr wadrs<8>, radrs<8>;
-	reg_wr wdata<9>;
 
 	vm2413_interface vm2413inf;
 	reg_wr count<7>;
@@ -71,7 +71,6 @@ circuit vrc7_fifo
 	}
 
 	stage opll_write {
-		state_name read_st, write_st, wait_st;
 		first_state read_st;
 		finish;
 		state read_st par{

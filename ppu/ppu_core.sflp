@@ -327,7 +327,6 @@ if(^hhh) halt(0x45);
 	// ラインの最初に起動、コメントは起動後のline
 	stage FRAME {
 		reg_wr vbline<5>, frame<8>;
-		state_name vb_st,vb_nmi,vb_in,vb_end,draw0,draw_in;
 		first_state vb_st;
 		finish;
 		state vb_st par{ // 240 (0) VBlank start
@@ -395,7 +394,6 @@ if(^hhh) halt(0x45);
 		reg_wr srch_slct<8>, spr_mad<6>;
 		sel srch_i<3>, spr_inc<6>, scan_sub<9>;
 		instrself srch_end;
-		state_name sst,st1,st2,st3,st4,stset,stend;
 		first_state sst;
 		par{
 			any(i=0;i<8;i++){ // ワンホットからインデックスへ変換
@@ -467,7 +465,6 @@ if(^hhh) halt(0x45);
 	stage SPR_BUF {
 		reg_wr buf_slct<8>;
 		sel buf_i<3>;
-		state_name sst,st1,sprm1,sprm1w,sprm2,sprm2w,stend;
 		first_state sst;
 		par{
 			any(i=0;i<8;i++){ // ワンホットからインデックスへ変換
@@ -534,7 +531,6 @@ if(^hhh) halt(0x45);
 		sel bg_name_base<4>, bg_attribute_base<8>, col_high_tmp<2>;
 		reg_wr tile_x<6>, mem_wait<7>, dmy_count;
 		sel d_name_id<2>, d_bg_scrl_y<8>;
-		state_name bgm1,bgm1w,bgm2,bgm2w,bgm3,bgm3w,bgm4,bgm4w,stdrww,stsprw,stdmy,stdmyw,stend;
 		first_state bgm1;
 		par{
 			bg_name_base = 0b10 || name_id;
@@ -652,7 +648,6 @@ if(^hhh) halt(0x45);
 		sel spr_face<4>, bg_face<4>, pal_adrs<5>;
 		reg_wr dsc_set_reg, clip_x<8>;
 		instrself dsc_set, fi_bg_left_clip, fi_spr_left_clip;
-		state_name sst, st1, st2;
 		first_state sst;
 		par{
 			// SPR_COL

@@ -964,7 +964,6 @@ dbg = mapper_nsf.dbg;
 	stage attach_stg {
 		reg_wr set_ok_reg;
 		reg_wr hA<4>, pA<14>, pbA<5>, cbA<5>;
-		state_name ainit,head,prgw,chrw,rend,oend;
 		first_state ainit;
 		par{
 			set_ok = set_ok_reg | mapper_nsf.set_ok;

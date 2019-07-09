@@ -272,7 +272,6 @@ circuit fds_core
 
 	stage SweepEnvelope {
 		reg_wr swp_env_count<9>;
-		state_name sp,ep;
 		first_state sp;
 		state sp par{
 			// Sweepエンベロープx8をカウントする（sweep_env_dataが大きいほどエンベロープは緩やか）
@@ -303,7 +302,6 @@ circuit fds_core
 		reg_wr lfo_period<16>;
 		sel lfo_period_add<16>;
 		reg_wr lfo_now<3>;
-		state_name wcount, wread;
 		first_state wcount;
 		state wcount par{
 			lfo_period_add = lfo_period + (0x0 || lfo_freq_high || lfo_freq_low);
@@ -339,7 +337,6 @@ circuit fds_core
 
 	stage VolumeEnvelope {
 		reg_wr vol_env_count<9>;
-		state_name sp,ep;
 		first_state sp;
 		state sp par{
 			// Volumeエンベロープx8をカウントする（vol_env_dataが大きいほどエンベロープは緩やか）
@@ -369,7 +366,6 @@ circuit fds_core
 	stage Render {
 		reg_wr main_period<16>;
 		sel main_period_add<16>;
-		state_name wcount, wread;
 		first_state wcount;
 		state wcount par{
 			main_period_add = main_period + (0x0 || main_freq_high || main_freq_low) + (16#sub_freq);
@@ -395,7 +391,6 @@ circuit fds_core
 	stage LPF {
 		reg_wr sound_reg_0<14>;
 		sel sound_add<16>, sound_avg<16>;
-		state_name w1, w2, w3;
 		first_state w1;
 		state w1 par{
 			// 前回の出力値を保持

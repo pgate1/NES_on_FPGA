@@ -180,7 +180,6 @@ dbg = rest_count<7:0>;
 	}
 
 	stage dma_read { // mpu.run + 2clk
-		state_name st1, st2;
 		first_state st1;
 		state st1 if(^(ctrl & ^f_ctrl)){
 			if(f_rest){

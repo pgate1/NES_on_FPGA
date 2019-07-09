@@ -188,7 +188,6 @@ dbg = dbg_reg;
 		reg_wr hA<8>, pBank<8>, pA<20>; // pA<8+12>
 		reg_wr bank_check, recv_ok;
 		reg_wr LoadAdrs_low<8>, LoadAdrs_high<7>, banks<8>;
-		state_name init,head,prgw,rend,oend;
 		first_state init;
 		par{
 			finish;
