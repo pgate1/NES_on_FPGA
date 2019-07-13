@@ -66,7 +66,7 @@ circuit vrc7_fifo
 	instruct ready par{
 		radrs := 0x00;
 		wadrs := 0x00;
-		sound_reg := 0b0000000000000;
+		sound_reg := 13#0b0;
 		vm2413inf.ready();
 	}
 
@@ -120,8 +120,8 @@ circuit vrc7_fifo
 // ƒEƒBƒ“ƒhƒE‚¸‚ê‚É‚æ‚èG‰¹‚ªæ‚é
 			if(chcount==0b1000111){
 				sound_reg := sound_total<14:2>;
-				sound_total := 0b000000000000000;
-				chcount := 0b0000000;
+				sound_total := 15#0b0;
+				chcount := 7#0b0;
 			}
 			else{
 				// <10s>~9ch~3st<15s>
@@ -133,8 +133,8 @@ circuit vrc7_fifo
 // 1/4‚ÌŠm—§‚Å–³‰¹‚É‚È‚é
 			if(chcount==0b1000111){
 				sound_reg := sound_total;
-				sound_total := 0b0000000000000;
-				chcount := 0b0000000;
+				sound_total := 13#0b0;
+				chcount := 7#0b0;
 			}
 			else{
 				if(/&chcount<1:0>){
@@ -149,11 +149,11 @@ circuit vrc7_fifo
 			vmsound_signed_old := vmsound_signed;
 			if(chcount==0b1000111){
 				sound_reg := sound_total;
-				sound_total := 0b0000000000000;
-				chcount := 0b0000000;
+				sound_total := 13#0b0;
+				chcount := 7#0b0;
 			}
 			else{
-				if(vmsound_signed_old==0b0000000000){
+				if(vmsound_signed_old==0){
 					// 9ch•ª‚ğ•„†Šg’£‚µ‚Ä‰ÁZ
 					// nsf‚Å‚Í8ch‚Ì‚İg—p <10s>~8ch<13s>
 					sound_total += (13#vmsound_signed);
