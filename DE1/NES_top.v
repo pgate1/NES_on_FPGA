@@ -62,7 +62,7 @@ module NES_top
 	inout wire [35:0] GPIO_0, GPIO_1
 );
 
-wire p_reset, g_reset, m_clock;
+wire p_reset, g_reset;
 
 wire [15:0] sram_Dout;
 wire sram_Dout_En;

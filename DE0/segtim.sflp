@@ -1,0 +1,52 @@
+
+circuit segtim
+{
+	instrin run;
+	reg_wr count<7>;
+	reg_wr seg<7>;
+	output oSEG<7>;
+
+	stage_name light { task do(); }
+
+//	count++;
+
+	instruct run par{
+		count++;
+	}
+
+	if(/&count){
+		generate light.do();
+	}
+
+	oSEG = ^seg;
+
+	stage light {
+		first_state st1;
+		finish;
+		state st1 par{
+			seg := 0b0000001;
+			goto st2;
+		}
+		state st2 par{
+			seg := 0b0000010;
+			goto st3;
+		}
+		state st3 par{
+			seg := 0b0000100;
+			goto st4;
+		}
+		state st4 par{
+			seg := 0b0001000;
+			goto st5;
+		}
+		state st5 par{
+			seg := 0b0010000;
+			goto st6;
+		}
+		state st6 par{
+			seg := 0b0100000;
+			goto st1;
+		}
+	}
+
+}

@@ -1,0 +1,612 @@
+
+/*
+	NES on FPGA feat. DE0
+	NSF Player on FPGA feat. DE0
+	Copyright (c) 2014 pgate1.
+
+	prg : SDRAM
+	chr : BlockRAM
+*/
+
+%i "../../../DE0/chatmask.h"
+%i "../../../DE0/seg7_ctrl.h"
+%i "../../../DE0/sdram_ctrl.h"
+%i "../../../DE0/sdcard_ctrl.h"
+%i "../../../hdl/fat16.h"
+%i "../../../DE0/lcd_ctrl.h"
+%i "../../../DE0/keyboard_ctrl.h"
+%i "../../../DE0/vjtag_uart.h"
+
+%i "../nes_core.h"
+%i "../mapper/Mapper.h"
+%i "../display.h"
+%i "../../../hdl/vga_ctrl.h"
+%i "../../../hdl/dsdac7.h"
+%i "DDS_50to5369318.h"
+//%i "DDS_50to1662607.h"
+%i "dsdac16.h"
+%i "segtim.h"
+
+#define VRC7
+
+#ifdef VRC7
+%i "../mem/ram_8x16k.h"
+#else
+%i "../mem/ram_8x32k.h"
+#endif
+
+circuit core
+{
+	input BUTTON<3>;
+	chatmask cmask_0, cmask_1, cmask_2;
+	sela btn[3];
+	input SW<10>;
+	seg7_ctrl seg7_0, seg7_1, seg7_2, seg7_3;
+	sel seg<16>;
+	output HEX0<7>, HEX1<7>, HEX2<7>, HEX3<7>;
+	output LEDG<10>;
+//--------------------- SDRAM Interface --------------------
+	output SDRAM_CSn, SDRAM_WEn, SDRAM_DEn;
+	output SDRAM_RASn, SDRAM_CASn;
+	output SDRAM_BA<2>, SDRAM_ADDR<12>;
+	output SDRAM_LDQM, SDRAM_UDQM;
+	input  SDRAM_Din<16>;
+	output SDRAM_Dout<16>;
+	sdram_ctrl sdram;
+//--------------------- SD_Card Interface ------------------
+	output SD_CSn; // SD Card CSn
+	output SD_CLK; // SD Card Clock
+	output SD_CMD; // SD Card Command & Dout
+	input  SD_DAT; // SD Card Data
+	sdcard_ctrl sdcard;
+	fat16 fat;
+//--------------------- PS/2 -------------------------------
+	input PS2_KBCLK, PS2_KBDAT;
+	keyboard_ctrl kb;
+	mem keys[128];
+//--------------------- VGA --------------------------------
+	output VGA_HS, VGA_VS;
+	output VGA_R<4>, VGA_G<4>, VGA_B<4>;
+	reg_wr red_out_reg<4>, grn_out_reg<4>, blu_out_reg<4>;
+	reg_wr clock25M_div;
+	VGA_ctrl vga;
+	Display dis;
+	reg_ws dis_timing;
+//-------------------- SOUND -------------------------------
+	dsdac16 dac_L, dac_R;
+	output Sound_Left, Sound_Right;
+//--------------------- LCD --------------------------------
+	lcd_ctrl lcd;
+	output LCD_RS, LCD_RW, LCD_EN, LCD_DATA<8>;
+
+	vjtag_uart vjtag;
+
+	reg_ws reset;
+
+	reg_wr prg_read_ok;
+
+	// NES
+	nes_core nes;
+	Mapper cart;
+	reg_wr cnt_1MHz<6>;
+
+#ifdef VRC7
+	ram_8x16k chr_ram;
+#else
+	ram_8x32k chr_ram;
+#endif
+
+	reg_wr file_num<8>;
+
+	sel sound_L_clip<14>, sound_R_clip<14>;
+	sel sound_L<14>, sound_R<14>;
+
+	reg_wr note_count<17>;
+	dsdac7 dac_sq1, dac_sq2, dac_tri, dac_noi, dac_dmc;
+	dsdac7 dac_mmc5, dac_n106, dac_fds, dac_vrc6, dac_sn5b, dac_vrc7;
+	reg_wr note_sq1<7>, note_sq2<7>, note_tri<7>, note_noi<7>, note_dmc<7>;
+	reg_wr note_mmc5<7>, note_n106<7>, note_fds<7>, note_vrc6<7>, note_sn5b<7>, note_vrc7<7>;
+
+	segtim segtim_0, segtim_1, segtim_2, segtim_3;
+
+	DDS_50to5369318 dds_ntsc;
+//	DDS_50to1662607 dds_pal;
+
+	stage_name nes_line { task do(); }
+	stage_name clock3580k { task do(); }
+	stage_name clock25M { task do(); }
+	stage_name key2btn { task do(); }
+	stage_name key_seek { task next(); task back(); }
+	stage_name card2ram { task do(); }
+	stage_name vjtag2ram { task do(); }
+	stage_name prg_set_wait { task do(); }
+	stage_name lcd_view { task do(); }
+
+	if(reset){
+		reset := 0b0;
+		generate clock3580k.do();
+		generate clock25M.do();
+		generate card2ram.do();
+		file_num := 0;
+		generate key2btn.do();
+		generate lcd_view.do();
+	}
+
+	par(i=0;i<3;i++){
+		cmask[i].bin = ^BUTTON<i>; btn[i] = cmask[i].bout;
+	}
+
+	if(cart.f_nes | SW<1>){
+		HEX3 = seg7_3.con(seg<15:12>).oSEG;
+		HEX2 = seg7_2.con(seg<11: 8>).oSEG;
+		HEX1 = seg7_1.con(seg< 7: 4>).oSEG;
+		HEX0 = seg7_0.con(seg< 3: 0>).oSEG;
+	}
+	else{
+		HEX3 = segtim_3.oSEG;
+		HEX2 = segtim_2.oSEG;
+		HEX1 = segtim_1.oSEG;
+		HEX0 = segtim_0.oSEG;
+	}
+	instruct nes.tim_sq1 segtim_3.run();
+	instruct nes.tim_sq2 segtim_2.run();
+	instruct nes.tim_tri segtim_1.run();
+	instruct nes.tim_noi segtim_0.run();
+
+	SDRAM_CSn = sdram.CSn;
+	SDRAM_RASn = sdram.RASn;
+	SDRAM_CASn = sdram.CASn;
+	SDRAM_WEn = sdram.WEn;
+	SDRAM_DEn = sdram.DEn;
+	SDRAM_BA = sdram.BA;
+	SDRAM_ADDR = sdram.A;
+	SDRAM_LDQM = sdram.LDM;
+	SDRAM_UDQM = sdram.HDM;
+	SDRAM_Dout = sdram.Dout;
+	sdram.Din = SDRAM_Din;
+
+	SD_CSn = sdcard.CSn;
+	SD_CLK = sdcard.CLK;
+	SD_CMD = sdcard.CMD;
+	sdcard.DAT = SD_DAT;
+
+	fat.sack = sdcard.ack;
+	fat.sdata = sdcard.rdata;
+
+	kb.ps2Clk = PS2_KBCLK;
+	kb.ps2Data = PS2_KBDAT;
+
+	vga.vt_su = 2;
+	vga.vt_vu = 2 + 33;
+	vga.vt_nu = 2 + 33 + 16 - 2;
+	vga.vt_nd = 2 + 33 + 480 - 16 - 2;
+	vga.vt_vd = 2 + 33 + 480;
+	vga.vt_sd = 525 - 1;
+	vga.ht_su = 96;
+	vga.ht_vu = 96 + 48;
+	vga.ht_nu = 96 + 48 + 64;
+	vga.ht_nd = 96 + 48 + 64 + 512;
+	vga.ht_vd = 96 + 48 + 640;
+	vga.ht_sd = 800 - 1;
+	if(vga.win_valid){
+		red_out_reg := dis.r_out || 0b0;
+		grn_out_reg := dis.g_out || 0b0;
+		blu_out_reg := dis.b_out || 0b0;
+	}
+	else{
+		// NES画面外の色（ディスプレイ自動幅調整のため）
+		red_out_reg := 0b0010;
+		grn_out_reg := 0b0010;
+		blu_out_reg := 0b0010;
+	}
+	VGA_HS = vga.hsync;
+	VGA_VS = vga.vsync;
+	VGA_R = red_out_reg & (4#vga.view_valid);
+	VGA_G = grn_out_reg & (4#vga.view_valid);
+	VGA_B = blu_out_reg & (4#vga.view_valid);
+
+	LCD_RS = lcd.rs;
+	LCD_RW = lcd.rw;
+	LCD_EN = lcd.en;
+	LCD_DATA = lcd.data;
+
+	nes.IRQn = cart.IRQn;
+	nes.VRAM_CSn = cart.VRAM_CSn;
+	nes.VRAM_A10 = cart.VRAM_A10;
+	if(^prg_read_ok) nes.ready();
+
+	nes.f_stereo = ^SW<0>;
+	nes.speed = SW<2>;
+	nes.stop  = 0b0;
+	nes.f_nsf = cart.f_nsf;
+	instruct cart.NMI_out nes.nsf_NMI();
+
+	if(^prg_read_ok) cart.ready();
+	instruct nes.clk_out cart.Phi();
+
+	if(cnt_1MHz==50){
+		cart.tim1MHz();
+		cnt_1MHz := 1;
+	}
+	else cnt_1MHz++;
+
+	cart.fat_eof = fat.eof;
+
+#ifdef VRC7
+	cart.mute = SW<9:3>;
+#else
+	// chr_ramをDQ1用に32KB取るためにVRC7は一時除外
+	cart.mute = SW<9:3> | 0b0000001;
+#endif
+	cart.nes_sound_L = nes.sound_L;
+	cart.nes_sound_R = nes.sound_R;
+
+	any{
+		cart.sound_L<14> : sound_L_clip = -1;
+		else : sound_L_clip = cart.sound_L<13:0>;
+	}
+	any{
+		cart.sound_R<14> : sound_R_clip = -1;
+		else : sound_R_clip = cart.sound_R<13:0>;
+	}
+	if(SW<1>){ // 逆位相サラウンド
+		sound_L = sound_L_clip + 0b10000000000000; // 加算でプチノイズが消える
+		sound_R = (^(sound_R_clip + 0b10000000000000)) + 1;
+	}
+	else{
+		sound_L = sound_L_clip;
+		sound_R = sound_R_clip;
+	}
+	dac_L.DACin = sound_L || 0b00;
+	dac_R.DACin = sound_R || 0b00;
+	Sound_Left  = dac_L.DACout;
+	Sound_Right = dac_R.DACout;
+
+	// NESPAD : 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
+//	nes.pad1P = (btn_1 & ^btn_2) || 0b000 || (btn_2 & btn_1) || 0b00 || btn_2;
+	nes.pad1P =
+		((btn_1 || 0b000 || SW<0> || 0b00 || btn_2) & 8#(cart.f_nes & prg_read_ok)) |
+		(keys[0x74] || keys[0x6B] || keys[0x72] || keys[0x75] || keys[0x5A] || keys[0x29] || keys[0x1A] || keys[0x22]);
+	nes.pad2P = 0x00;
+
+	LEDG = (0b00 || nes.pad1P) |
+		(dac_sq1.DACout || dac_sq2.DACout || dac_tri.DACout || dac_noi.DACout || dac_dmc.DACout ||
+		 dac_mmc5.DACout || dac_n106.DACout || dac_fds.DACout || dac_vrc6.DACout || (dac_sn5b.DACout | dac_vrc7.DACout));
+
+	// ソフトリセット
+	if(/&nes.pad1P<3:2>){
+		nes.soft_reset();
+		cart.soft_reset();
+	}
+
+	seg = nes.pc_out;
+//	seg = nes.dbg;
+
+	if(cart.f_nsf) alt{
+		btn_2 : par{ // 進む
+			generate key_seek.next();
+		}
+		btn_1 : par{ // 戻る
+			generate key_seek.back();
+		}
+	}
+
+	cart.ROM_SELn = nes.ROM_SELn;
+	cart.prg_A = nes.A;
+	instruct nes.read_prg par{
+		cart.prg_read();
+	}
+	nes.prg_din = cart.prg_Dout;
+
+	cart.prg_Din = nes.prg_dout;
+	instruct nes.write_prg par{
+		cart.prg_write();
+	}
+
+	cart.chr_A = nes.PA;
+	instruct nes.read_chr par{
+		// romセット時にchr_rom読み込み防止
+		if(prg_read_ok) cart.chr_read();
+	}
+	nes.chr_din = cart.chr_Dout;
+
+	cart.chr_Din = nes.chr_dout;
+	instruct nes.write_chr par{
+		cart.chr_write();
+	}
+
+	instruct cart.prg_ram_read par{
+		sdram.read(0b00||cart.prg_ram_adrs<19:0>);
+	}
+	cart.prg_rom_rdata = sdram.rdata<7:0>;
+
+	instruct cart.prg_ram_write par{
+		sdram.write(0b00||cart.prg_ram_adrs<19:0>, 0x00||cart.prg_ram_wdata);
+	}
+
+	instruct cart.chr_ram_read par{
+#ifdef VRC7
+		chr_ram.read(cart.chr_ram_adrs<13:0>);
+#else
+		chr_ram.read(cart.chr_ram_adrs<14:0>); // 32KB
+#endif
+	}
+	cart.chr_ram_rdata = chr_ram.dout;
+
+	instruct cart.chr_ram_write par{
+#ifdef VRC7
+		chr_ram.write(cart.chr_ram_adrs<13:0>, cart.chr_ram_wdata);
+#else
+		chr_ram.write(cart.chr_ram_adrs<14:0>, cart.chr_ram_wdata); // 32KB
+#endif
+	}
+
+	instruct nes.NES_VIDEO_enable par{
+		dis.write(nes.video);
+	}
+
+	instruct nes.note_sq1 if(^cart.mute<6>) note_sq1 := 0b1111111;
+	instruct nes.note_sq2 if(^cart.mute<6>) note_sq2 := 0b1111111;
+	instruct nes.note_tri if(^cart.mute<6>) note_tri := 0b1111111;
+	instruct nes.note_noi if(^cart.mute<6>) note_noi := 0b1111111;
+	instruct nes.note_dmc if(^cart.mute<6>) note_dmc := 0b1111111;
+	instruct cart.note_mmc5 if(^cart.mute<5>) note_mmc5 := 0b1111111;
+	instruct cart.note_n106 if(^cart.mute<4>) note_n106 := 0b1111111;
+	instruct cart.note_fds  if(^cart.mute<3>) note_fds  := 0b1111111;
+	instruct cart.note_vrc6 if(^cart.mute<2>) note_vrc6 := 0b1111111;
+	instruct cart.note_sn5b if(^cart.mute<1>) note_sn5b := 0b1111111;
+	instruct cart.note_vrc7 if(^cart.mute<0>) note_vrc7 := 0b1111111;
+	note_count++;
+	if(/&note_count){
+		if(note_sq1!=0) note_sq1--;
+		if(note_sq2!=0) note_sq2--;
+		if(note_tri!=0) note_tri--;
+		if(note_noi!=0) note_noi--;
+		if(note_dmc!=0) note_dmc--;
+		if(note_mmc5!=0) note_mmc5--;
+		if(note_n106!=0) note_n106--;
+		if(note_fds!=0)  note_fds--;
+		if(note_vrc6!=0) note_vrc6--;
+		if(note_sn5b!=0) note_sn5b--;
+		if(note_vrc7!=0) note_vrc7--;
+	}
+	dac_sq1.DACin = note_sq1;
+	dac_sq2.DACin = note_sq2;
+	dac_tri.DACin = note_tri;
+	dac_noi.DACin = note_noi;
+	dac_dmc.DACin = note_dmc;
+	dac_mmc5.DACin = note_mmc5;
+	dac_n106.DACin = note_n106;
+	dac_fds.DACin = note_fds;
+	dac_vrc6.DACin = note_vrc6;
+	dac_sn5b.DACin = note_sn5b;
+	dac_vrc7.DACin = note_vrc7;
+
+	instruct vga.dis par{
+		if(dis_timing) dis.read();
+		dis_timing := ^dis_timing;
+	}
+
+	instruct vga.nes_hsync par{
+		dis.bank_change();
+		generate nes_line.do();
+	}
+
+	instruct dds_ntsc.run par{ // 5.369318MHz
+		if(prg_read_ok /*& ^cart.f_nsf_PAL*/){
+			nes.run();
+		}
+	}
+
+	instruct nes.clk_out par{
+		cart.clock1789k();
+	}
+/*
+	instruct dds_pal_clk.run par{
+		if(prg_read_ok & cart.f_nsf_PAL){
+			nes.run();
+		}
+	}
+*/
+	instruct fat.sread par{
+		sdcard.read(fat.sadrs);
+	}
+
+	instruct vjtag.recv par{
+		generate vjtag2ram.do();
+	}
+
+	stage clock3580k {
+		reg_wr clock3580k_count<4>;
+		par{
+			if(clock3580k_count==14){
+				if(prg_read_ok){
+					cart.clock3580k();
+				}
+				clock3580k_count := 1;
+			}
+			else clock3580k_count++;
+			if(0b0) finish; // 未使用
+		}
+	}
+
+	stage nes_line {
+		reg_wr pixel_count<9>;
+		par{
+			if(dds_ntsc.run){
+
+				nes.draw();
+
+				if(pixel_count==341){
+					nes.hblank();
+					pixel_count := 1;
+					finish;
+				}
+				else pixel_count++;
+
+				if(pixel_count==260){ // 256 + 8 ?
+					cart.hblank();
+				}
+			}
+		}
+	}
+
+	stage clock25M {
+		par{
+			clock25M_div := ^clock25M_div;
+			if(clock25M_div /*& prg_read_ok*/) vga.run();
+			if(0b0) finish; // 未使用
+		}
+	}
+
+	stage key2btn {
+		reg_ws push;
+		par{
+			if(kb.scanok) switch(kb.scancode){
+				case 0xE0: ; // 無視
+				case 0xF0: push := 0b0;
+				default: par{
+					keys[kb.scancode<6:0>] := push;
+					push := 0b1;
+				}
+			}
+			if(0b0) finish;
+		}
+	}
+
+	stage key_seek {
+		first_state iwait;
+		state iwait par{
+			prg_read_ok := 0b0;
+			goto st1;
+		}
+		state st1 par{
+			any{
+				key_seek.next : file_num++;
+				key_seek.back : file_num--;
+			}
+			generate card2ram.do();
+			goto st2;
+		}
+		state st2 if(^card2ram.do){
+			if((key_seek.next & (^btn_2))
+			 | (key_seek.back & (^btn_1))){
+				goto iwait;
+				finish;
+			}
+		}
+	}
+
+	stage card2ram {
+		first_state rbegin;
+		state rbegin if(fat.ack){
+			prg_read_ok := 0b0;
+			fat.fopen(file_num);
+			goto fatr;
+		}
+		state fatr if(fat.ack){
+			fat.read();
+			goto head;
+		}
+		state head if(fat.ack){
+			cart.set_head(fat.fdata);
+			fat.read();
+			if(cart.head_err){
+				any{
+					key_seek.next : file_num++;
+					key_seek.back : file_num--;
+					else : file_num++;
+				}
+				goto rbegin;
+			}
+			if(cart.head_ok) goto reopen;
+		}
+		state reopen if(fat.ack){
+			nes.mem_clear();
+			fat.fopen(file_num);
+			goto maps;
+		}
+		state maps if(fat.ack & cart.ack & sdram.ack){
+			//if(^fat.eof)
+			 fat.read();
+			cart.attach(fat.fdata);
+			if(cart.set_ok) goto rend;
+		}
+		state rend if(sdram.ack){
+			nes.soft_reset();
+			cart.soft_reset();
+			prg_read_ok := 0b1;
+		//	generate prg_set_wait.do();
+			goto rbegin;
+			finish;
+		}
+	}
+
+	stage vjtag2ram {
+		first_state rbegin;
+		finish;
+		state rbegin par{
+			prg_read_ok := 0b0;
+			nes.mem_clear();
+			cart.set_map(vjtag.recv_data); // Mapper ID
+			goto maps;
+		}
+		state maps par{
+			cart.attach(vjtag.recv_data);
+			if(cart.set_ok) goto rend;
+		}
+		state rend par{
+			nes.soft_reset();
+			cart.soft_reset();
+			prg_read_ok := 0b1;
+		//	generate prg_set_wait.do();
+			goto rbegin;
+		}
+	}
+
+	stage prg_set_wait {
+		reg_wr pwait<4>;
+		par{
+			pwait++;
+			if(/&pwait){
+				prg_read_ok := 0b1;
+				finish;
+			}
+		}
+	}
+
+	stage lcd_view {
+		reg_wr str_view_reg<256>;
+		reg_wr lw_count<26>, chr_shift<5>;
+		first_state st1;
+		par{
+			lcd.str0 = str_view_reg<255:128>;
+			lcd.str1 = cart.artist_str;
+			if(0b0) finish;
+		}
+		state st1 if(lcd.ack & prg_read_ok){
+			str_view_reg := cart.title_str;
+			lcd.view_on();
+			lw_count := 0;
+			chr_shift := 0;
+			if(cart.title_length<4> & /|cart.title_length<3:0>) goto st1w;
+		}
+		state st1w par{
+			lw_count++;
+			if(/&lw_count) goto st2;
+			if(^prg_read_ok) goto st1;
+		}
+		state st2 if(lcd.ack){
+			if(lw_count==20000000){
+				str_view_reg := str_view_reg<247:0> || ' ';
+				lcd.view_on();
+				lw_count := 0;
+				chr_shift++;
+				if(chr_shift==cart.title_length) goto st1;
+			}
+			else lw_count++;
+			if(^prg_read_ok) goto st1;
+		}
+	}
+
+}
