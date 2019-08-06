@@ -113,7 +113,7 @@ wire audio_SET;
 		.VGA_HS(VGA_HS), .VGA_VS(VGA_VS),
 		.VGA_R(VGA_R), .VGA_G(VGA_G), .VGA_B(VGA_B),
 //--------------------- Audio ------------------------
-		.audio_RD(audio_RD), .audio_DATA(audio_DATA),
+		.audio_RD(audio_RD), .audio_DATA(audio_DATA)
 //		.audio_SET(audio_SET), .audio_VOL(audio_VOL),
 //--------------------- PS PAD ------------------------
 /*
