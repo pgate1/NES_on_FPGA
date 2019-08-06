@@ -12,7 +12,7 @@
 //%i "../../apu/length_rom.h"
 declare length_rom
 {
-	input adrs<8>;
+	input adrs<5>;
 	instrin read;
 	output dout<8>;
 	instr_arg read(adrs);
@@ -42,8 +42,6 @@ circuit mmc5_core
 
 	square_ch sq1, sq2;
 
-	reg_wr noused;
-
 	stage_name FrameSequencer { task do(); }
 
 	if(reset){
@@ -51,7 +49,7 @@ circuit mmc5_core
 		frame_ls := 0b00001;
 	}
 
-	if(noused){
+	if(0b0){
 		sq1.Sweep();
 		sq2.Sweep();
 	}
@@ -67,7 +65,7 @@ circuit mmc5_core
 	// lengthデータはsq1,sq2で全て
 	// adrs<1:0>==0b11 din<7:3> となっている
 	if(io_write & (adrs<4:3>==0b00) & (adrs<1:0>==0b11)){
-		len_max.read(0b000||din<7:3>);
+		len_max.read(din<7:3>);
 	}
 	sq1.length_max = len_max.dout;
 	sq2.length_max = len_max.dout;
