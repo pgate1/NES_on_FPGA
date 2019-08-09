@@ -251,7 +251,7 @@ circuit core
 	}
 	if(SW<1>){ // 逆位相サラウンド
 		sound_L = sound_L_clip + 0b10000000000000; // 加算でプチノイズが消える
-		sound_R = (^(sound_R_clip + 0b10000000000000)) + 1;
+		sound_R = -(sound_R_clip + 0b10000000000000);
 	}
 	else{
 		sound_L = sound_L_clip;

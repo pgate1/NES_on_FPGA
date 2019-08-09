@@ -243,12 +243,11 @@ circuit core
 	cart.mute = SW<9:3>;
 	cart.nes_sound_L = nes.sound_L;
 	cart.nes_sound_R = nes.sound_R;
+	sound_L = 0b0 || cart.sound_L;
 	if(SW<1>){ // ‹tˆÊ‘ŠƒTƒ‰ƒEƒ“ƒh
-		sound_L = 0b0 || cart.sound_L;
-		sound_R = (^(0b0||cart.sound_R)) + 1;
+		sound_R = -(0b0||cart.sound_R);
 	}
 	else{
-		sound_L = 0b0 || cart.sound_L;
 		sound_R = 0b0 || cart.sound_R;
 	}
 	dac.data_L = sound_L || 0x0000;
