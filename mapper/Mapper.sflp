@@ -52,12 +52,14 @@ circuit Mapper
 	instrin prg_read, prg_write;
 	input prg_A<15>, prg_Din<8>;
 	output prg_Dout<8>;
+	instrout prg_ack;
 	output IRQn;
 
 	// CHR-ROM
 	instrin chr_read, chr_write; // RDn, WEn
 	input chr_A<14>, chr_Din<8>; // chr_A13n
 	output chr_Dout<8>;
+	instrout chr_ack;
 	output VRAM_CSn, VRAM_A10;
 
 	instrin Phi; // 1.789MHz
@@ -165,21 +167,32 @@ output dbg<16>;
 	instrself init();
 
 	// 外部RAMへのアクセス
-	instrout prg_ram_read(prg_ram_adrs);
-	output prg_ram_adrs<20>; // PRG_ROM max 1MB
-	output prg_ram_wdata<8>;
-	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	instrout prg_rom_read(prg_rom_adrs);
+	output prg_rom_adrs<20>; // PRG_ROM max 1MB
 	input prg_rom_rdata<8>;
+	instrout prg_rom_write(prg_rom_adrs, prg_rom_wdata);
+	output prg_rom_wdata<8>;
+	reg_wr prg_rom_adrs_reg<20>;
+	instrin prg_rom_ack;
 
 	instrout chr_ram_read(chr_ram_adrs);
 	output chr_ram_adrs<18>; // CHR_ROM max 256KB
-	output chr_ram_wdata<8>;
-	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
 	input chr_ram_rdata<8>;
+	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	output chr_ram_wdata<8>;
+	reg_wr chr_ram_adrs_reg<18>, chr_ram_wdata_reg<8>;
+	instrin chr_ram_ack;
+
+	instrself ext_ram_read(ext_ram_adrs);
+	sel ext_ram_adrs<13>; // EXT_RAM 8kB
+	sel ext_ram_dout<8>;
+	instrself ext_ram_write(ext_ram_adrs, ext_ram_wdata);
+	sel ext_ram_wdata<8>;
+	reg_wr ext_ram_ack_wait;
 
 	instrin ready;
 	input mute<7>;
-	input nes_sound_L<8>, nes_sound_R<8>;
+	input nes_sound_L<8>, nes_sound_R<8>, nes_volume_boost<8>;
 	sel usound_L<11>, usound_R<11>;
 	output sound_L<15>, sound_R<15>;
 	instrout note_mmc5, note_n106, note_fds, note_vrc6, note_sn5b, note_vrc7;
@@ -202,19 +215,46 @@ input dbg_in<8>;
 	stage_name attach_stg { task do(set_data); }
 	stage_name exram_init { task do(); }
 
+	instruct ext_ram_write par{
+		exram.write(ext_ram_adrs, ext_ram_wdata);
+	}
+	instruct ext_ram_read par{
+		exram.read(ext_ram_adrs);
+		ext_ram_ack_wait := 0b1;
+	}
+	if(ext_ram_ack_wait){
+		ext_ram_ack_wait := 0b0;
+		prg_ack();
+	}
+	ext_ram_dout = exram.dout;
+
 	par{
 
+		if(prg_rom_read | prg_rom_write) prg_rom_adrs_reg := prg_rom_adrs;
+		else prg_rom_adrs = prg_rom_adrs_reg;
+
+		if(chr_ram_read | chr_ram_write) chr_ram_adrs_reg := chr_ram_adrs;
+		else chr_ram_adrs = chr_ram_adrs_reg;
+		if(chr_ram_write) chr_ram_wdata_reg := chr_ram_wdata;
+		else chr_ram_wdata = chr_ram_wdata_reg;
+
+		instruct prg_rom_ack prg_ack();
+		instruct chr_ram_ack chr_ack();
+
 #ifdef MapNSF
-		mapper_nsf.mute = mute<5:0>;
+		if(f_nsf) mapper_nsf.mute = mute<5:0>;
+		else mapper_nsf.mute = 0b111111;
 
 		usound_L = // <11>
 			((0b00||nes_sound_L||0b0) & (11#(^mute<6>))) // <8>
+			+ ((0b00||nes_volume_boost||0b0) & (11#(^mute<6>))) // <8>
 			+ mapper_nsf.usound // <11>
 			+ mapper_019.usound // <11>
 			+ mapper_069.usound;
 
 		usound_R =
 			((0b00||nes_sound_R||0b0) & (11#(^mute<6>)))
+			+ ((0b00||nes_volume_boost||0b0) & (11#(^mute<6>))) // <8>
 			+ mapper_nsf.usound
 			+ mapper_019.usound
 			+ mapper_069.usound;
@@ -231,11 +271,13 @@ dbg = mapper_nsf.dbg;
 #else
 		usound_L = // <11>
 			(0b00||nes_sound_L||0b0) // <8>
+			+ (0b00||nes_volume_boost||0b0) // <8>
 			+ mapper_019.usound // <11>
 			+ mapper_069.usound;
 
 		usound_R =
 			(0b00||nes_sound_R||0b0)
+			+ (0b00||nes_volume_boost||0b0) // <8>
 			+ mapper_019.usound // <11>
 			+ mapper_069.usound;
 
@@ -254,11 +296,12 @@ dbg = mapper_nsf.dbg;
 		mapper_nsf.ROM_SELn = ROM_SELn;
 		mapper_nsf.prg_A = prg_A;
 		mapper_nsf.prg_Din = prg_Din;
-		mapper_nsf.exram_rdata = exram.dout;
+		mapper_nsf.exram_rdata = ext_ram_dout;
 		f_nsf_PAL = mapper_nsf.f_PAL;
 		title_str = mapper_nsf.title_str;
 		title_length = mapper_nsf.title_length;
 		artist_str = mapper_nsf.artist_str;
+		instruct mapper_nsf.exrom_ack prg_ack();
 #endif
 #ifdef Map000
 		mapper_000.prg_rom_rdata = prg_rom_rdata;
@@ -281,7 +324,7 @@ dbg = mapper_nsf.dbg;
 		mapper_001.n16kRomBanks = n16kRomBanks;
 		mapper_001.n8kVRomBanks = n8kVRomBanks;
 		mapper_001.fMirroringType = fMirroringType;
-		mapper_001.exram_rdata = exram.dout;
+		mapper_001.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map002
 		mapper_002.prg_rom_rdata = prg_rom_rdata;
@@ -314,7 +357,7 @@ dbg = mapper_nsf.dbg;
 		mapper_004.n16kRomBanks = n16kRomBanks;
 		mapper_004.n8kVRomBanks = n8kVRomBanks;
 		mapper_004.fMirroringType = fMirroringType;
-		mapper_004.exram_rdata = exram.dout;
+		mapper_004.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map005
 		mapper_005.prg_rom_rdata = prg_rom_rdata;
@@ -327,7 +370,7 @@ dbg = mapper_nsf.dbg;
 		mapper_005.n16kRomBanks = n16kRomBanks;
 		mapper_005.n8kVRomBanks = n8kVRomBanks;
 		mapper_005.fMirroringType = fMirroringType;
-		mapper_005.exram_rdata = exram.dout;
+		mapper_005.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map010
 		mapper_010.prg_rom_rdata = prg_rom_rdata;
@@ -338,7 +381,7 @@ dbg = mapper_nsf.dbg;
 		mapper_010.chr_ram_rdata = chr_ram_rdata;
 		mapper_010.n16kRomBanks = n16kRomBanks;
 		mapper_010.fMirroringType = fMirroringType;
-		mapper_010.exram_rdata = exram.dout;
+		mapper_010.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map016
 		mapper_016.prg_rom_rdata = prg_rom_rdata;
@@ -349,7 +392,7 @@ dbg = mapper_nsf.dbg;
 		mapper_016.chr_ram_rdata = chr_ram_rdata;
 		mapper_016.n16kRomBanks = n16kRomBanks;
 //		mapper_016.fMirroringType = fMirroringType;
-		mapper_016.exram_rdata = exram.dout;
+		mapper_016.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map019
 		mapper_019.prg_rom_rdata = prg_rom_rdata;
@@ -362,7 +405,8 @@ dbg = mapper_nsf.dbg;
 		mapper_019.n16kRomBanks = n16kRomBanks;
 		mapper_019.n8kVRomBanks = n8kVRomBanks;
 		mapper_019.fMirroringType = fMirroringType;
-		mapper_019.exram_rdata = exram.dout;
+		mapper_019.exram_rdata = ext_ram_dout;
+		instruct mapper_019.exrom_ack prg_ack();
 #endif
 #ifdef Map023
 		mapper_023.prg_rom_rdata = prg_rom_rdata;
@@ -372,7 +416,7 @@ dbg = mapper_nsf.dbg;
 		mapper_023.chr_A = chr_A;
 		mapper_023.chr_ram_rdata = chr_ram_rdata;
 		mapper_023.fMirroringType = fMirroringType;
-		mapper_023.exram_rdata = exram.dout;
+		mapper_023.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map025
 		mapper_025.prg_rom_rdata = prg_rom_rdata;
@@ -383,7 +427,7 @@ dbg = mapper_nsf.dbg;
 		mapper_025.chr_ram_rdata = chr_ram_rdata;
 		mapper_025.n16kRomBanks = n16kRomBanks;
 		mapper_025.fMirroringType = fMirroringType;
-		mapper_025.exram_rdata = exram.dout;
+		mapper_025.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map069
 		mapper_069.prg_rom_rdata = prg_rom_rdata;
@@ -404,7 +448,7 @@ dbg = mapper_nsf.dbg;
 		mapper_073.chr_Din = chr_Din;
 		mapper_073.chr_ram_rdata = chr_ram_rdata;
 		mapper_073.fMirroringType = fMirroringType;
-		mapper_073.exram_rdata = exram.dout;
+		mapper_073.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map080
 		mapper_080.prg_rom_rdata = prg_rom_rdata;
@@ -415,7 +459,7 @@ dbg = mapper_nsf.dbg;
 		mapper_080.chr_ram_rdata = chr_ram_rdata;
 		mapper_080.n16kRomBanks = n16kRomBanks;
 		mapper_080.fMirroringType = fMirroringType;
-		mapper_080.exram_rdata = exram.dout;
+		mapper_080.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map089
 		mapper_089.prg_rom_rdata = prg_rom_rdata;
@@ -437,7 +481,7 @@ dbg = mapper_nsf.dbg;
 		mapper_118.n16kRomBanks = n16kRomBanks;
 //		mapper_004.n8kVRomBanks = n8kVRomBanks;
 		mapper_118.fMirroringType = fMirroringType;
-		mapper_118.exram_rdata = exram.dout;
+		mapper_118.exram_rdata = ext_ram_dout;
 #endif
 
 		switch(mapper_id){
@@ -683,40 +727,42 @@ dbg = mapper_nsf.dbg;
 #endif
 
 	instruct hblank par{
-		mapper_004.hblank();
-		mapper_016.hblank();
-		mapper_019.hblank();
-		mapper_023.hblank();
-		mapper_025.hblank();
-		mapper_069.hblank();
-		mapper_118.hblank();
+		switch(mapper_id){
+			case   4: mapper_004.hblank();
+			case  16: mapper_016.hblank();
+			case  19: mapper_019.hblank();
+			case  23: mapper_023.hblank();
+			case  25: mapper_025.hblank();
+			case  69: mapper_069.hblank();
+			case 118: mapper_118.hblank();
+		}
 	}
 
 #ifdef MapNSF
-	instruct mapper_nsf.prg_ram_read par{
-		prg_ram_read(mapper_nsf.prg_ram_adrs);
+	instruct mapper_nsf.prg_rom_read par{
+		prg_rom_read(mapper_nsf.prg_rom_adrs);
 	}
-	instruct mapper_nsf.prg_ram_write par{
-		prg_ram_write(mapper_nsf.prg_ram_adrs, mapper_nsf.prg_ram_wdata);
+	instruct mapper_nsf.prg_rom_write par{
+		prg_rom_write(mapper_nsf.prg_rom_adrs, mapper_nsf.prg_rom_wdata);
 	}
 	instruct mapper_nsf.exram_read par{
-		exram.read(mapper_nsf.exram_adrs);
+		ext_ram_read(mapper_nsf.exram_adrs);
 	}
 	instruct mapper_nsf.exram_write par{
-		exram.write(mapper_nsf.exram_adrs, mapper_nsf.exram_wdata);
+		ext_ram_write(mapper_nsf.exram_adrs, mapper_nsf.exram_wdata);
 	}
 #endif
 #ifdef Map000
-	instruct mapper_000.prg_ram_read par{
-		prg_ram_read(0b00000||mapper_000.prg_ram_adrs);
+	instruct mapper_000.prg_rom_read par{
+		prg_rom_read(0b00000||mapper_000.prg_rom_adrs);
 	}
 	instruct mapper_000.chr_ram_read par{
 		chr_ram_read(0b00000||mapper_000.chr_ram_adrs);
 	}
 #endif
 #ifdef Map001
-	instruct mapper_001.prg_ram_read par{
-		prg_ram_read(0b0||mapper_001.prg_ram_adrs);
+	instruct mapper_001.prg_rom_read par{
+		prg_rom_read(0b0||mapper_001.prg_rom_adrs);
 	}
 	instruct mapper_001.chr_ram_read par{
 		chr_ram_read(0b0||mapper_001.chr_ram_adrs);
@@ -725,15 +771,15 @@ dbg = mapper_nsf.dbg;
 		chr_ram_write(0b0||mapper_001.chr_ram_adrs, mapper_001.chr_ram_wdata);
 	}
 	instruct mapper_001.exram_read par{
-		exram.read(mapper_001.exram_adrs);
+		ext_ram_read(mapper_001.exram_adrs);
 	}
 	instruct mapper_001.exram_write par{
-		exram.write(mapper_001.exram_adrs, mapper_001.exram_wdata);
+		ext_ram_write(mapper_001.exram_adrs, mapper_001.exram_wdata);
 	}
 #endif
 #ifdef Map002
-	instruct mapper_002.prg_ram_read par{
-		prg_ram_read(0b00||mapper_002.prg_ram_adrs);
+	instruct mapper_002.prg_rom_read par{
+		prg_rom_read(0b00||mapper_002.prg_rom_adrs);
 	}
 	instruct mapper_002.chr_ram_read par{
 		chr_ram_read(0b00000||mapper_002.chr_ram_adrs);
@@ -743,16 +789,16 @@ dbg = mapper_nsf.dbg;
 	}
 #endif
 #ifdef Map003
-	instruct mapper_003.prg_ram_read par{
-		prg_ram_read(0b00000||mapper_003.prg_ram_adrs);
+	instruct mapper_003.prg_rom_read par{
+		prg_rom_read(0b00000||mapper_003.prg_rom_adrs);
 	}
 	instruct mapper_003.chr_ram_read par{
 		chr_ram_read(0b000||mapper_003.chr_ram_adrs);
 	}
 #endif
 #ifdef Map004
-	instruct mapper_004.prg_ram_read par{
-		prg_ram_read(0b0||mapper_004.prg_ram_adrs);
+	instruct mapper_004.prg_rom_read par{
+		prg_rom_read(0b0||mapper_004.prg_rom_adrs);
 	}
 	instruct mapper_004.chr_ram_read par{
 		chr_ram_read(mapper_004.chr_ram_adrs);
@@ -761,15 +807,15 @@ dbg = mapper_nsf.dbg;
 		chr_ram_write(mapper_004.chr_ram_adrs, mapper_004.chr_ram_wdata);
 	}
 	instruct mapper_004.exram_read par{
-		exram.read(mapper_004.exram_adrs);
+		ext_ram_read(mapper_004.exram_adrs);
 	}
 	instruct mapper_004.exram_write par{
-		exram.write(mapper_004.exram_adrs, mapper_004.exram_wdata);
+		ext_ram_write(mapper_004.exram_adrs, mapper_004.exram_wdata);
 	}
 #endif
 #ifdef Map005
-	instruct mapper_005.prg_ram_read par{
-		prg_ram_read(0b0||mapper_005.prg_ram_adrs);
+	instruct mapper_005.prg_rom_read par{
+		prg_rom_read(0b0||mapper_005.prg_rom_adrs);
 	}
 	instruct mapper_005.chr_ram_read par{
 		chr_ram_read(mapper_005.chr_ram_adrs);
@@ -780,43 +826,43 @@ dbg = mapper_nsf.dbg;
 	}
 */
 	instruct mapper_005.exram_read par{
-		exram.read(mapper_005.exram_adrs);
+		ext_ram_read(mapper_005.exram_adrs);
 	}
 	instruct mapper_005.exram_write par{
-		exram.write(mapper_005.exram_adrs, mapper_005.exram_wdata);
+		ext_ram_write(mapper_005.exram_adrs, mapper_005.exram_wdata);
 	}
 #endif
 #ifdef Map010
-	instruct mapper_010.prg_ram_read par{
-		prg_ram_read(0b00||mapper_010.prg_ram_adrs);
+	instruct mapper_010.prg_rom_read par{
+		prg_rom_read(0b00||mapper_010.prg_rom_adrs);
 	}
 	instruct mapper_010.chr_ram_read par{
 		chr_ram_read(0b0||mapper_010.chr_ram_adrs);
 	}
 	instruct mapper_010.exram_read par{
-		exram.read(mapper_010.exram_adrs);
+		ext_ram_read(mapper_010.exram_adrs);
 	}
 	instruct mapper_010.exram_write par{
-		exram.write(mapper_010.exram_adrs, mapper_010.exram_wdata);
+		ext_ram_write(mapper_010.exram_adrs, mapper_010.exram_wdata);
 	}
 #endif
 #ifdef Map016
-	instruct mapper_016.prg_ram_read par{
-		prg_ram_read(0b0||mapper_016.prg_ram_adrs);
+	instruct mapper_016.prg_rom_read par{
+		prg_rom_read(0b0||mapper_016.prg_rom_adrs);
 	}
 	instruct mapper_016.chr_ram_read par{
 		chr_ram_read(mapper_016.chr_ram_adrs);
 	}
 	instruct mapper_016.exram_read par{
-		exram.read(mapper_016.exram_adrs);
+		ext_ram_read(mapper_016.exram_adrs);
 	}
 	instruct mapper_016.exram_write par{
-		exram.write(mapper_016.exram_adrs, mapper_016.exram_wdata);
+		ext_ram_write(mapper_016.exram_adrs, mapper_016.exram_wdata);
 	}
 #endif
 #ifdef Map019
-	instruct mapper_019.prg_ram_read par{
-		prg_ram_read(0b0||mapper_019.prg_ram_adrs);
+	instruct mapper_019.prg_rom_read par{
+		prg_rom_read(0b0||mapper_019.prg_rom_adrs);
 	}
 	instruct mapper_019.chr_ram_read par{
 		chr_ram_read(mapper_019.chr_ram_adrs);
@@ -825,51 +871,51 @@ dbg = mapper_nsf.dbg;
 		chr_ram_write(mapper_019.chr_ram_adrs, mapper_019.chr_ram_wdata);
 	}
 	instruct mapper_019.exram_read par{
-		exram.read(mapper_019.exram_adrs);
+		ext_ram_read(mapper_019.exram_adrs);
 	}
 	instruct mapper_019.exram_write par{
-		exram.write(mapper_019.exram_adrs, mapper_019.exram_wdata);
+		ext_ram_write(mapper_019.exram_adrs, mapper_019.exram_wdata);
 	}
 #endif
 #ifdef Map023
-	instruct mapper_023.prg_ram_read par{
-		prg_ram_read(0b000||mapper_023.prg_ram_adrs);
+	instruct mapper_023.prg_rom_read par{
+		prg_rom_read(0b000||mapper_023.prg_rom_adrs);
 	}
 	instruct mapper_023.chr_ram_read par{
 		chr_ram_read(mapper_023.chr_ram_adrs);
 	}
 	instruct mapper_023.exram_read par{
-		exram.read(mapper_023.exram_adrs);
+		ext_ram_read(mapper_023.exram_adrs);
 	}
 	instruct mapper_023.exram_write par{
-		exram.write(mapper_023.exram_adrs, mapper_023.exram_wdata);
+		ext_ram_write(mapper_023.exram_adrs, mapper_023.exram_wdata);
 	}
 #endif
 #ifdef Map025
-	instruct mapper_025.prg_ram_read par{
-		prg_ram_read(0b00||mapper_025.prg_ram_adrs);
+	instruct mapper_025.prg_rom_read par{
+		prg_rom_read(0b00||mapper_025.prg_rom_adrs);
 	}
 	instruct mapper_025.chr_ram_read par{
 		chr_ram_read(mapper_025.chr_ram_adrs);
 	}
 	instruct mapper_025.exram_read par{
-		exram.read(mapper_025.exram_adrs);
+		ext_ram_read(mapper_025.exram_adrs);
 	}
 	instruct mapper_025.exram_write par{
-		exram.write(mapper_025.exram_adrs, mapper_025.exram_wdata);
+		ext_ram_write(mapper_025.exram_adrs, mapper_025.exram_wdata);
 	}
 #endif
 #ifdef Map069
-	instruct mapper_069.prg_ram_read par{
-		prg_ram_read(0b00||mapper_069.prg_ram_adrs);
+	instruct mapper_069.prg_rom_read par{
+		prg_rom_read(0b00||mapper_069.prg_rom_adrs);
 	}
 	instruct mapper_069.chr_ram_read par{
 		chr_ram_read(mapper_069.chr_ram_adrs);
 	}
 #endif
 #ifdef Map073
-	instruct mapper_073.prg_ram_read par{
-		prg_ram_read(0b000||mapper_073.prg_ram_adrs);
+	instruct mapper_073.prg_rom_read par{
+		prg_rom_read(0b000||mapper_073.prg_rom_adrs);
 	}
 	instruct mapper_073.chr_ram_read par{
 		chr_ram_read(0b00000||mapper_073.chr_ram_adrs);
@@ -878,46 +924,46 @@ dbg = mapper_nsf.dbg;
 		chr_ram_write(0b00000||mapper_073.chr_ram_adrs, mapper_073.chr_ram_wdata);
 	}
 	instruct mapper_073.exram_read par{
-		exram.read(mapper_073.exram_adrs);
+		ext_ram_read(mapper_073.exram_adrs);
 	}
 	instruct mapper_073.exram_write par{
-		exram.write(mapper_073.exram_adrs, mapper_073.exram_wdata);
+		ext_ram_write(mapper_073.exram_adrs, mapper_073.exram_wdata);
 	}
 #endif
 #ifdef Map080
-	instruct mapper_080.prg_ram_read par{
-		prg_ram_read(0b00||mapper_080.prg_ram_adrs);
+	instruct mapper_080.prg_rom_read par{
+		prg_rom_read(0b00||mapper_080.prg_rom_adrs);
 	}
 	instruct mapper_080.chr_ram_read par{
 		chr_ram_read(0b0||mapper_080.chr_ram_adrs);
 	}
 	instruct mapper_080.exram_read par{
-		exram.read(mapper_080.exram_adrs);
+		ext_ram_read(mapper_080.exram_adrs);
 	}
 	instruct mapper_080.exram_write par{
-		exram.write(mapper_080.exram_adrs, mapper_080.exram_wdata);
+		ext_ram_write(mapper_080.exram_adrs, mapper_080.exram_wdata);
 	}
 #endif
 #ifdef Map089
-	instruct mapper_089.prg_ram_read par{
-		prg_ram_read(0b00||mapper_089.prg_ram_adrs);
+	instruct mapper_089.prg_rom_read par{
+		prg_rom_read(0b00||mapper_089.prg_rom_adrs);
 	}
 	instruct mapper_089.chr_ram_read par{
 		chr_ram_read(0b0||mapper_089.chr_ram_adrs);
 	}
 #endif
 #ifdef Map118
-	instruct mapper_118.prg_ram_read par{
-		prg_ram_read(0b00||mapper_118.prg_ram_adrs);
+	instruct mapper_118.prg_rom_read par{
+		prg_rom_read(0b00||mapper_118.prg_rom_adrs);
 	}
 	instruct mapper_118.chr_ram_read par{
 		chr_ram_read(0b0||mapper_118.chr_ram_adrs);
 	}
 	instruct mapper_118.exram_read par{
-		exram.read(mapper_118.exram_adrs);
+		ext_ram_read(mapper_118.exram_adrs);
 	}
 	instruct mapper_118.exram_write par{
-		exram.write(mapper_118.exram_adrs, mapper_118.exram_wdata);
+		ext_ram_write(mapper_118.exram_adrs, mapper_118.exram_wdata);
 	}
 #endif
 
@@ -974,7 +1020,7 @@ dbg = mapper_nsf.dbg;
 			pA := 0;
 			pbA := 0;
 			cbA := 0;
-		//	exram_init.do(); exramはランダム（シルヴァサーガ対策）
+		//	exram_init.do(); // コメントアウトでexramはランダム（シルヴァサーガ対策）
 			goto head;
 		}
 		state head par{
@@ -988,7 +1034,7 @@ dbg = mapper_nsf.dbg;
 		}
 		state prgw par{
 			// PRGを0x4000(16384)バイト×n16kRomBanks コピー
-			prg_ram_write(0b0||pbA<4:0>||pA<13:0>, set_data);
+			prg_rom_write(0b0||pbA<4:0>||pA<13:0>, set_data);
 			pA++;
 			if(/&pA<13:0>){
 				pbA++;
@@ -1038,7 +1084,7 @@ dbg = mapper_nsf.dbg;
 	stage exram_init {
 		reg_wr mem_adrs<13>;
 		par{
-			exram.write(mem_adrs, 0x00);
+			ext_ram_write(mem_adrs, 0x00);
 			mem_adrs++;
 			if(/&mem_adrs) finish;
 		}

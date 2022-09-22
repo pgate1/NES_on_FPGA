@@ -49,10 +49,10 @@ circuit MapperNSF
 	input exram_rdata<8>;
 
 	// 外部RAMへのアクセス
-	instrout prg_ram_read(prg_ram_adrs);
-	output prg_ram_adrs<20>;
-	output prg_ram_wdata<8>;
-	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	instrout prg_rom_read(prg_rom_adrs);
+	output prg_rom_adrs<20>;
+	output prg_rom_wdata<8>;
+	instrout prg_rom_write(prg_rom_adrs, prg_rom_wdata);
 	input prg_rom_rdata<8>;
 
 	// 未使用
@@ -75,7 +75,7 @@ circuit MapperNSF
 	reg_wr f_speed_PAL;
 
 	rega nsf_bank[8]<8>;
-	reg_wr ext_sound<8>;
+	reg_wr ext_sound<6>;
 	sel badrs<20>;
 
 	reg_wr title_str_reg<256>, title_length_reg<5>, title_str_end;
@@ -95,6 +95,8 @@ circuit MapperNSF
 
 	reg_wr set_data<8>;
 	reg_wr set_ok_reg;
+
+	instrout exrom_ack;
 
 output dbg<16>;
 reg_wr dbg_reg<16>;
@@ -159,16 +161,19 @@ reg_wr dbg_reg<16>;
 		 + ((0b0000||fds.sound) & (11#((^mute<3>)&ext_sound<2>)))
 			// x1
 		 + ((0b00||vrc6.sound||0b00) & (11#((^mute<2>)&ext_sound<0>)))
-			// +0.125
+			// +0.25
 		 + (((0b00||sn5b.sound)+(0b0000||sn5b.sound<8:2>)) & (11#((^mute<1>)&ext_sound<5>)));
 		usound = usound_reg;
 
 //		ssound = // <14s>
 //			(14#vrc7.sound) & (14#^mute<0>); // <13s>
-		// 316.nsfで調整 -0.125 2017/06/18
-		vrc7_usound = (^vrc7.sound<12>) || vrc7.sound<11:0>;
+		vrc7_usound = (^vrc7.sound<12>) || vrc7.sound<11:0>; // unsigned化
+		// 316.nsfで調整 -0.25 2017/06/18 他のnsfで小さい？
+//		ssound = // <14u>
+//			(0b0 || (vrc7_usound - (0b00||vrc7_usound<12:2>))) & (14#((^mute<0>)&ext_sound<1>)); // <13s>
+		// 2019/12/07 -0.125
 		ssound = // <14u>
-			(0b0 || (vrc7_usound - (0b00||vrc7_usound<12:2>))) & (14#((^mute<0>)&ext_sound<1>)); // <13s>
+			(0b0 || (vrc7_usound - (0b000||vrc7_usound<12:3>))) & (14#((^mute<0>)&ext_sound<1>)); // <13s>
 
 		title_str = title_str_reg;
 		title_length = title_length_reg;
@@ -186,16 +191,19 @@ dbg = dbg_reg;
 		generate attach_stg.do(set_Din);
 	}
 
+	reg_wr read_ack_wait;
+
 	instruct prg_read any{
-		map_exrom : any{
+		map_exrom : par{
 			// NSF
-			prg_A<12:8>==0b0_0001 : par{ // $4100
+			if(prg_A<12:8>==0b0_0001){ // $4100
 				init_rom.read(prg_A<7:0>);
 			}
 			// N106
-			prg_A<12:10>==0b010 : par{ // $4800
+			if(prg_A<12:10>==0b010){ // $4800
 				n106.io_read(0b0);
 			}
+			read_ack_wait := 0b1;
 		}
 		map_exram : par{
 			exram_read(prg_A<12:0>);
@@ -205,8 +213,13 @@ dbg = dbg_reg;
 			any(i=0;i<8;i++){
 				prg_A<14:12>==i : badrs = nsf_bank[i] || prg_A<11:0>;
 			}
-			prg_ram_read(badrs);
+			prg_rom_read(badrs);
 		}
+	}
+
+	if(read_ack_wait){
+		read_ack_wait := 0b0;
+		exrom_ack();
 	}
 
 	instruct prg_write par{
@@ -325,6 +338,7 @@ reg_wr sum<8>;
 			pBank := 0;
 			recv_ok := 0b0;
 			nmi_on := 0;
+			ext_sound := 0b000000; // 20220808追加
 sum := 0x00;
 			goto head;
 		}
@@ -387,7 +401,7 @@ sum := 0x00;
 					// FamiTrackerで作ったものはLDXが必須
 					init_rom.write(0x17, set_data & 0x01); // LDX 0:NTSC, 1:PAL
 				}
-				hA==0x7B : ext_sound := set_data;
+				hA==0x7B : ext_sound := set_data<5:0>;
 				hA==0x7E : if(set_data<0>) recv_ok := 0b1; // 予約領域、1ならUARTから転送済み
 				hA==0x7F : banks := set_data; // 独自拡張、UARTからバンク数をセット
 			}
@@ -406,7 +420,7 @@ sum += set_data;
 		}
 		state prgw par{
 sum += set_data;
-			prg_ram_write(pA, set_data);
+			prg_rom_write(pA, set_data);
 			pA++;
 			// UARTからの読み込み
 			if(pA<11:0>==(LoadAdrs_high<3:0>||LoadAdrs_low)){

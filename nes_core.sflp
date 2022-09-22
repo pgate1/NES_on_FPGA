@@ -16,6 +16,7 @@ circuit nes_core
 	input prg_din<8>;
 	reg_wr prg_din_reg<8>;
 	output prg_dout<8>;
+	instrin prg_ack;
 
 	// CHR-ROM
 	output PA<14>, WEn, RDn, chr_RW;
@@ -26,6 +27,7 @@ circuit nes_core
 	input chr_din<8>;
 	reg_wr chr_din_reg<8>;
 	output chr_dout<8>;
+	instrin chr_ack;
 
 	input pad1P<8>, pad2P<8>;
 	input f_stereo;
@@ -42,7 +44,8 @@ circuit nes_core
 	output video<6>;
 	instrout NES_VIDEO_enable;
 
-	output sound_L<8>, sound_R<8>;
+	input mute<5>, f_volume_boost<5>;
+	output sound_L<8>, sound_R<8>, volume_boost<8>;
 	instrout note_sq1, note_sq2, note_tri, note_noi, note_dmc;
 	instrout tim_sq1, tim_sq2, tim_tri, tim_noi;
 
@@ -58,12 +61,15 @@ circuit nes_core
 	reg_wr pad1_data<8>, pad2_data<8>;
 	instrself map_wmem, map_ppu, map_nesrom, map_apu;
 
-	reg_wr mpu_dout_reg<8>, ppu_dout_reg<8>;
+	reg_wr mpu_dout_reg<8>, ppu_PDout_reg<8>;
 	reg_wr prg_count<5>, chr_count<4>;
 
 	// DMA
 	reg_wr f_dma, dma_low<8>, dma_data<8>;
 	reg_wr f_apu_dmc, apu_dmc_adrs<16>;
+
+	// 実カートリッジ使用
+	input f_real_cartridge;
 
 	reg_wr sp_flag;
 	reg_wr pre_nmi;
@@ -87,12 +93,15 @@ output dbg<16>;
 	stage_name mpu_read { task do(A_reg); }
 	stage_name io_read_wait { task do(); }
 	stage_name prg_read_stg { task do(); }
+	stage_name prg_read_ack_wait { task do(); }
 	stage_name mpu_write { task do(A_reg, mpu_dout_reg); }
 	stage_name prg_write_stg { task do(); }
 	stage_name vram_read_stg { task do(); }
 	stage_name chr_read_stg { task do(PA_reg); }
+	stage_name chr_read_ack_wait { task do(PA_reg); }
 	stage_name vram_write_stg { task do(); }
-	stage_name chr_write_stg { task do(PA_reg, ppu_dout_reg); }
+	stage_name chr_write_stg { task do(PA_reg, ppu_PDout_reg); }
+	stage_name chr_write_ack_wait { task do(PA_reg, ppu_PDout_reg); }
 	stage_name phi2_tim { task do(); }
 	stage_name dma_run { task do(); }
 	stage_name dma_read_wait { task do(); }
@@ -108,29 +117,33 @@ output dbg<16>;
 	any{
 		A_reg<15:13>==0b000 : par{ // 0x0000-0x07FF WRAM
 			map_wmem();
-			mpu.din = wmem.dout;
 		}
 		A_reg<15:13>==0b001 : par{ // 0x2000-0x2007 PPU
 			map_ppu();
-			mpu.din = ppu.Dout;
 		}
 		A_reg<15:13>==0b010 : any{
 			A_reg<12:5>==0b00000000 : par{ // 0x4000-0x401F APU, PAD
 				map_apu();
-				mpu.din = io_reg;
 			}
 			else : par{ // 0x4020-0x5FFF ExROM
 				map_nesrom();
-				mpu.din = prg_din_reg;
 			}
 		}
 		A_reg<15:13>==0b011 : par{ // 0x6000-0x7FFF ExRAM
 			map_nesrom();
-			mpu.din = prg_din_reg;
 		}
 		A_reg<15> : par{ // 0x8000-0xFFFF ROM
 			map_nesrom();
-			mpu.din = prg_din_reg;
+		}
+	}
+
+	any{
+		map_wmem : mpu.din = wmem.dout;
+		map_ppu  : mpu.din = ppu.Dout;
+		map_apu  : mpu.din = io_reg;
+		map_nesrom : par{
+			if(f_real_cartridge) mpu.din = prg_din_reg;
+			else mpu.din = prg_din;
 		}
 	}
 
@@ -146,13 +159,19 @@ output dbg<16>;
 	RDn = RDn_reg;
 	chr_RW = chr_RW_reg;
 	if(VRAM_CSn==0b0) ppu.PDin = vmem.dout;
-	else ppu.PDin = chr_din_reg;
-	chr_dout = ppu_dout_reg;//ppu.PDout;
+	else{
+		if(f_real_cartridge) ppu.PDin = chr_din_reg;
+		else ppu.PDin = chr_din;
+	}
+	chr_dout = ppu_PDout_reg;//ppu.PDout;
 
 	apu.f_stereo = f_stereo;
 	apu.dpcm_7bit = 0b1;
-	sound_L = apu.volume_L;
-	sound_R = apu.volume_R;
+	apu.mute = mute;
+	sound_L = apu.sound_L;
+	sound_R = apu.sound_R;
+	apu.f_volume_boost = f_volume_boost;
+	volume_boost = apu.volume_boost;
 
 	if(f_nsf){ // 60Hz以外のNSF用拡張
 /*
@@ -246,15 +265,21 @@ output dbg<16>;
 	instruct hblank ppu.hblank();
 
 	instruct ppu.read_req par{
-		generate vram_read_stg.do();
-		generate chr_read_stg.do(ppu.PA);
+		if(f_real_cartridge){
+			generate vram_read_stg.do();
+			generate chr_read_stg.do(ppu.PA);
+		}
+		else generate chr_read_ack_wait.do(ppu.PA);
 //if(chr_read_stg.do) halt(0x12);
 //if(chr_write_stg.do) halt(0x13);
 	}
 
 	instruct ppu.write_req par{
-		generate vram_write_stg.do();
-		generate chr_write_stg.do(ppu.PA, ppu.PDout);
+		if(f_real_cartridge){
+			generate vram_write_stg.do();
+			generate chr_write_stg.do(ppu.PA, ppu.PDout);
+		}
+		else generate chr_write_ack_wait.do(ppu.PA, ppu.PDout);
 //if(chr_read_stg.do) halt(0x22);
 //if(chr_write_stg.do) halt(0x23);
 	}
@@ -308,10 +333,11 @@ output dbg<16>;
 				}
 				map_nesrom : par{
 				//	generate prg_read_stg.do();
+					generate prg_read_ack_wait.do();
 					read_prg();
 				}
 			}
-			generate prg_read_stg.do();
+			if(f_real_cartridge) generate prg_read_stg.do();
 			finish;
 		}
 	}
@@ -352,6 +378,13 @@ output dbg<16>;
 		}
 	}
 
+	stage prg_read_ack_wait {
+		if(prg_ack | ready){
+			mpu.read_ack();
+			finish;
+		}
+	}
+
 	stage mpu_write {
 		par{
 			any{
@@ -373,12 +406,12 @@ output dbg<16>;
 				}
 				map_nesrom : par{
 					// ミネルバトンサーガ用(カセットへのセーブしないように)
-					//if(A_reg<15:4>==0x7EF) 
+					//if(A_reg<15:4>==0x7EF) mapperで処理してるか要確認
 				//	generate prg_write_stg.do();
 					write_prg();
 				}
 			}
-			generate prg_write_stg.do();
+			if(f_real_cartridge) generate prg_write_stg.do();
 			finish;
 		}
 	}
@@ -463,7 +496,7 @@ output dbg<16>;
 		state st3 goto st4;	// リターンバック信号待ち3
 		state st4 par{
 			if(VRAM_CSn==0b0){
-				vmem.read(VRAM_A10 || ppu.PA<9:0>);
+				vmem.read(VRAM_A10 || PA_reg<9:0>);
 			}
 			goto st1;
 			finish;
@@ -474,7 +507,6 @@ output dbg<16>;
 	stage chr_read_stg {
 		first_state st1;
 		state st1 par{
-			read_chr(); // for Mappers
 			chr_RW_reg := 0b1;
 			chr_count := 0;
 			goto st2;
@@ -506,6 +538,22 @@ output dbg<16>;
 		}
 	}
 
+	stage chr_read_ack_wait {
+		first_state st1;
+		state st1 par{
+			if(VRAM_CSn==0b0){
+				vmem.read(VRAM_A10 || PA_reg<9:0>);
+			}
+			else read_chr(); // for Mappers
+			goto st2;
+		}
+		state st2 if((VRAM_CSn==0b0) | chr_ack | ready){
+			ppu.read_ack();
+			goto st1;
+			finish;
+		}
+	}
+
 	stage vram_write_stg {
 		first_state st1;
 		state st1 goto st2;	// リターンバック信号待ち1
@@ -513,7 +561,7 @@ output dbg<16>;
 		state st3 goto st4;	// リターンバック信号待ち3
 		state st4 par{
 			if(VRAM_CSn==0b0){
-				vmem.write(VRAM_A10 || ppu.PA<9:0>, ppu.PDout);
+				vmem.write(VRAM_A10 || PA_reg<9:0>, ppu_PDout_reg);
 			}
 			goto st1;
 			finish;
@@ -524,7 +572,6 @@ output dbg<16>;
 	stage chr_write_stg {
 		first_state st1;
 		state st1 par{
-			write_chr(); // for Mappers
 			chr_RW_reg := 0b0;
 			chr_count := 0;
 			goto st2;
@@ -553,6 +600,16 @@ output dbg<16>;
 		state st5 par{
 			WEn_reg := 0b1;
 			goto st1;
+			finish;
+		}
+	}
+
+	stage chr_write_ack_wait {
+		par{
+			if(VRAM_CSn==0b0){
+				vmem.write(VRAM_A10 || PA_reg<9:0>, ppu_PDout_reg);
+			}
+			else write_chr(); // for Mappers
 			finish;
 		}
 	}

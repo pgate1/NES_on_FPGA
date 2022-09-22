@@ -1,0 +1,24 @@
+/*
+ 21,477,270Hz*7/3=50,113,630Hz‚©‚ç–ñ5,369,318Hz‚ğ¶¬‚·‚é
+ ‰ÁZ’l 383524:0x5DA24  ‚µ‚«‚¢’l 3579557:0x369EA5  Œë· 0.0000016Hz
+*/
+
+circuit DDS_501to5369318
+{
+	sel max<22>, add<20>;
+	reg_wr count<23>;
+	instrout run;
+	sel sa<23>;
+
+	add = 218125;
+	max = 2031217;
+
+	sa = count - (0b0||max);
+	if(sa<22>){ // count < max
+		count += (0b000 || add);
+	}
+	else{
+		count := sa + (0b000 || add);
+		run();
+	}
+}

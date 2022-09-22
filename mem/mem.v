@@ -18,7 +18,9 @@
 /* Cartridge ExRAM */
 `include "ram_8x8k.v"
 
-`include "rgb_rom.v"
+`include "rgb_rom_3.v"
+`include "rgb_rom_4.v"
+`include "rgb_rom_5.v"
 
 /* ChrRAM */
 `include "ram_8x32k.v"

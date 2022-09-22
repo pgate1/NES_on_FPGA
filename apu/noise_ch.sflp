@@ -12,7 +12,7 @@ circuit noise_ch
 
 	instrin ctrl(f_ctrl);
 	input f_ctrl;
-	instrin run;
+	instrin run, ready;
 	instrin EnvelopeGenerate, LengthCount;
 
 	input length_max<8>;
@@ -93,6 +93,12 @@ circuit noise_ch
 			enable := 0b0;
 		}
 		len.enable(f_ctrl);
+	}
+
+	instruct ready par{
+		len.halt(0b1);
+		env.halt();
+		env.set(0b010000);
 	}
 
 	instruct LengthCount len.exc();

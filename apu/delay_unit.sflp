@@ -8,24 +8,31 @@
 circuit delay_unit
 {
 	input delay<9>, din<8>;
-	output dout<8>;
 	instrin write(din);
+	output dout<8>;
+	reg_wr dout_reg<8>;
 
 	reg_wr din_reg<8>;
 	ram_8x512 d_ram;
 
 	stage_name delay_wr { task do(din_reg); }
 
+	if(delay!=0){
+		dout = dout_reg;
+	}
+	else{
+		dout = din;
+	}
+
 	instruct write par{
 		generate delay_wr.do(din);
 	}
 
 	stage delay_wr {
-		reg_wr dout_reg<8>, r_adrs<9>;
+		reg_wr r_adrs<9>;
 		sel w_adrs<9>;
 		first_state st1;
 		par{
-			dout = dout_reg;
 			w_adrs = r_adrs + delay;
 		}
 		state st1 par{

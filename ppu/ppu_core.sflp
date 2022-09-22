@@ -7,7 +7,7 @@
 %d BG_PAT_NAME      0b0000
 %d BG_PAT_ATTRIBUTE 0b0001
 %d BG_PAT_LOW_TMP   0b0010
-%d BG_PAT_HIGH      0b0011
+%d BG_PAT_HIGH_TMP  0b0011
 %d SPR_PAT_LOW      0b0100
 %d SPR_PAT_HIGH     0b0101
 %d TMP_READ_2007    0b1000
@@ -43,8 +43,8 @@ circuit ppu_core
 	reg_wr scanline<9>;
 	reg_wr bg_pat_name<8>;
 	reg_wr bg_pat_low<8>, bg_pat_low_tmp<8>;
-	reg_wr bg_pat_high<8>;
-	reg_wr bg_col_high<2>, bg_pat_attribute<8>;
+	reg_wr bg_pat_high<8>, bg_pat_high_tmp<8>;
+	reg_wr bg_col_high<2>, bg_col_high_tmp<2>, bg_pat_attribute<8>;
 	reg_wr name_id<2>, mem_hsync;
 	reg_wr tile_num<6>;
 
@@ -528,20 +528,30 @@ if(^hhh) halt(0x45);
 
 	// BGパターンの読み込み
 	stage BG_MEM {
-		sel bg_name_base<4>, bg_attribute_base<8>, col_high_tmp<2>;
+		sel bg_name_base<4>, bg_attribute_base<8>;
 		reg_wr tile_x<6>, mem_wait<7>, dmy_count;
 		sel d_name_id<2>, d_bg_scrl_y<8>;
+		instrself pat_reg_update;
 		first_state bgm1;
 		par{
 			bg_name_base = 0b10 || name_id;
 			bg_attribute_base = bg_name_base || 0b1111;
 
-			// BGパレット選択
-			col_high_tmp = (bg_pat_attribute >> (bg_scrl_y<4>||tile_x<1>||0b0) )<1:0>;
-
+			// 描画中のものを更新しないようにする
+			instruct pat_reg_update par{
+				bg_col_high := bg_col_high_tmp;
+				bg_pat_low := bg_pat_low_tmp;
+				bg_pat_high := bg_pat_high_tmp;
+			}
 			finish;
 		}
 		state bgm1 par{
+			if(tile_num!=0){
+				pat_reg_update();
+				// BG-ONの時は有効パターンを描画し、BG-OFFの時は無を描画する
+				bg_draw_do := 0b1;
+			}
+
 			if(f_bg_enable){
 				// read nametable 0b10nnyyyyyxxxxx
 				read(BG_PAT_NAME, bg_name_base || bg_scrl_y<7:3> || tile_x<4:0>);
@@ -566,18 +576,16 @@ if(^hhh) halt(0x45);
 		state bgm3w goto bgm4;
 		state bgm4 par{
 			if(f_bg_enable){
-				read(BG_PAT_HIGH, 0b0 || f_bg_pat_base || bg_pat_name || 0b1 || bg_scrl_y<2:0>);
+				read(BG_PAT_HIGH_TMP, 0b0 || f_bg_pat_base || bg_pat_name || 0b1 || bg_scrl_y<2:0>);
 			}
 			goto bgm4w;
 		}
 		state bgm4w par{
-			bg_col_high := col_high_tmp;
-			bg_pat_low := bg_pat_low_tmp;
+			// BGパレット選択
+			bg_col_high_tmp := (bg_pat_attribute >> (bg_scrl_y<4>||tile_x<1>||0b0) )<1:0>;
 
 			// ネームテーブル境界越え
 			if(tile_x<4:0>==0b11111) name_id := name_id<1> || ^name_id<0>;
-
-			if(^f_bg_enable) bg_draw_do := 0b1;
 
 			tile_x++;
 			tile_num++;
@@ -586,6 +594,7 @@ if(^hhh) halt(0x45);
 			else goto bgm1;
 		} // 8*33=264
 		state stdrww /*if(^bg_draw_do)*/par{
+			if(mem_wait==0) pat_reg_update();
 			if(mem_wait==8){ // NG:4,6,7 OK:8
 //if(bg_draw_do) halt(0x44);
 				sprbuf_read_on := 0b1;
@@ -759,19 +768,18 @@ if(^hhh) halt(0x45);
 				case BG_PAT_NAME      : bg_pat_name      := PDin;
 				case BG_PAT_ATTRIBUTE : bg_pat_attribute := PDin;
 				case BG_PAT_LOW_TMP   : bg_pat_low_tmp   := PDin;
-				case BG_PAT_HIGH      : par{
-					bg_pat_high      := PDin;
-					if(tile_num!=33) bg_draw_do := 0b1; // 1～32のときON
-				}
-				case SPR_PAT_LOW      : par{ // spr_pat_low := PDin;
+				case BG_PAT_HIGH_TMP  : bg_pat_high_tmp  := PDin;
+				case SPR_PAT_LOW      : par{
+					// spr_pat_low := PDin;
 					spr_inv(spr_tmp_at[buf_read]<3>, PDin);
 					spr_buf_patl[buf_read] := spr_pat_sel;
 				}
-				case SPR_PAT_HIGH     : par{ // spr_pat_high := PDin;
+				case SPR_PAT_HIGH     : par{
+					// spr_pat_high := PDin;
 					spr_inv(spr_tmp_at[buf_read]<3>, PDin);
 					spr_buf_path[buf_read] := spr_pat_sel;
 				}
-				case TMP_READ_2007    : tmp_read_2007    := PDin;
+				case TMP_READ_2007    : tmp_read_2007 := PDin;
 			}
 			finish;
 		}

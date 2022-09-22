@@ -16,6 +16,7 @@ circuit Mapper019
 	instrin prg_read, prg_write;
 	input prg_A<15>, prg_Din<8>;
 	output prg_Dout<8>;
+	reg_wr prg_Dout_reg<8>;
 	output IRQn;
 
 	// CHR-ROM
@@ -34,10 +35,8 @@ circuit Mapper019
 	input exram_rdata<8>;
 
 	// 外部RAMへのアクセス
-	instrout prg_ram_read(prg_ram_adrs);
-	output prg_ram_adrs<19>; // PRG_ROM max 512KB
-//	output prg_ram_wdata<8>;
-//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	instrout prg_rom_read(prg_rom_adrs);
+	output prg_rom_adrs<19>; // PRG_ROM max 512KB
 	input prg_rom_rdata<8>;
 
 	instrout chr_ram_read(chr_ram_adrs);
@@ -67,6 +66,8 @@ input dbg<8>;
 	reg_wr regs0, regs1;
 	reg_wr irq_counter_L<8>, irq_counter_H<8>, irq_enabled;
 
+	instrout exrom_ack;
+
 	reg_wr prg_mask<6>, chr_mask<8>;
 	sel chr_bank<8>;
 	sel irq_counter_s<16>;
@@ -86,6 +87,7 @@ input dbg<8>;
 				prg_A<12:10>==0b010 : par{ // $4800
 					prg_Dout = n106.io_Dout;
 				}
+				else : prg_Dout = prg_Dout_reg;
 			}
 			map_exram : prg_Dout = exram_rdata;
 			map_rom : prg_Dout = prg_rom_rdata;
@@ -198,6 +200,8 @@ input dbg<8>;
 		regs1 := 0b0;
 	}
 
+	reg_wr exrom_ack_wait;
+
 	instruct prg_read any{
 		map_exrom : par{
 			switch(prg_A<12:11>){
@@ -205,13 +209,14 @@ input dbg<8>;
 					n106.io_read(0b0);
 				}
 				case 0b10: par{ // $5000
-					prg_Dout = irq_counter_L;
+					prg_Dout_reg := irq_counter_L;
 				}
 				case 0b11: par{ // $5800
-					prg_Dout = 0b0 || irq_counter_H<6:0>;
+					prg_Dout_reg := 0b0 || irq_counter_H<6:0>;
 				}
-				default: prg_Dout = 0b0 || prg_A<14:8>;
+				default: prg_Dout_reg := 0b0 || prg_A<14:8>;
 			}
+			exrom_ack_wait := 0b1;
 		}
 		map_rom : par{
 			// prg_bank<6> + prg_A<13> = <19>
@@ -222,9 +227,14 @@ input dbg<8>;
 				case 0b10: prg_read_bank = prg_bank6;
 				case 0b11: prg_read_bank = prg_bank7;
 			}
-			prg_ram_read((prg_read_bank & prg_mask) || prg_A<12:0>);
+			prg_rom_read((prg_read_bank & prg_mask) || prg_A<12:0>);
 		}
 		map_exram : exram_read(prg_A<12:0>);
+	}
+
+	if(exrom_ack_wait){
+		exrom_ack_wait := 0b0;
+		exrom_ack();
 	}
 
 	instruct prg_write any{

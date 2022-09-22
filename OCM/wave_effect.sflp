@@ -1,0 +1,61 @@
+
+// ”gŒ`•\¦
+
+circuit wave_effect
+{
+	instrin vsync;
+	input sound<8>;
+	instrin read(hcount, vcount);
+	input hcount<10>, vcount<10>;
+	output r_out<5>, g_out<5>, b_out<5>;
+
+	mem wave[512]<8>;
+	sel wave_wadrs<9>, wave_din<8>;
+	instrself wave_write(wave_wadrs, wave_din);
+	sel wave_radrs<9>;
+	instrself wave_read(wave_radrs);
+	reg_wr wave_dout<8>;
+
+	instruct wave_write wave[wave_wadrs] := wave_din;
+	instruct wave_read wave_dout := wave[wave_radrs];
+
+	reg_wr vsync_count<3>;
+	instruct vsync par{
+		if(vsync_count==4){
+			vsync_count := 0;
+		}
+		else vsync_count++;
+	}
+	if(vsync_count==0){
+		reg_wr wave_count<13>, f_wave;
+		any{
+			(f_wave==0b0) & (wave_count==0)    : f_wave := 0b1;
+			(f_wave==0b1) & /&wave_count<12:4> : f_wave := 0b0;
+			else : wave_count++;
+		}
+		if(f_wave) wave_write(wave_count<12:4>, (^sound<7>)||sound<6:0>);
+	}
+
+	reg_wr col_count<15>;
+
+	instruct read par{
+		wave_read(hcount<8:0>);
+		reg_wr pre_wave_dout<8>;
+		if(wave_dout!=pre_wave_dout){
+			col_count++;
+			pre_wave_dout := wave_dout;
+		}
+	}
+
+	if((vcount<9:3>==(wave_dout<7:1>+45)) | (hcount<9:2>==sound)){
+		r_out = col_count<14:10>;
+		g_out = col_count<9:5>;
+		b_out = col_count<4:0>;
+	}
+	else{
+		r_out = 0b00001;
+		g_out = 0b00001;
+		b_out = 0b00001;
+	}
+
+}

@@ -26,10 +26,8 @@ circuit Mapper000
 	input n16kRomBanks<6>, fMirroringType;
 
 	// 外部RAMへのアクセス
-	instrout prg_ram_read(prg_ram_adrs);
-	output prg_ram_adrs<15>; // PRG_ROM 32KBまで
-//	output prg_ram_wdata<8>;
-//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	instrout prg_rom_read(prg_rom_adrs);
+	output prg_rom_adrs<15>; // PRG_ROM 32KBまで
 	input prg_rom_rdata<8>;
 
 	instrout chr_ram_read(chr_ram_adrs);
@@ -67,8 +65,8 @@ circuit Mapper000
 
 	instruct prg_read par{
 		if(ROM_SELn==0b0) switch(n16kRomBanks<1>){
-			case 0b0: prg_ram_read(0b0 || prg_A<13:0>);
-			case 0b1: prg_ram_read(prg_A);
+			case 0b0: prg_rom_read(0b0 || prg_A<13:0>);
+			case 0b1: prg_rom_read(prg_A);
 		}
 	}
 

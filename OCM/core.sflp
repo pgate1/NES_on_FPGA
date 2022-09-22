@@ -1,49 +1,36 @@
 
 /*
-	NES on FPGA feat. DE0
-	NSF Player on FPGA feat. DE0
-	Copyright (c) 2014 pgate1.
+	NES on FPGA feat. 1chipMSX
+	NSF Player on FPGA feat. 1chipMSX
+	Copyright (c) 2022 pgate1.
 
 	prg : SDRAM
 	chr : SDRAM
 */
 
-%i "../../../DE0/chatmask.h"
-%i "../../../DE0/seg7_ctrl.h"
-%i "../../../DE0/sdram_ctrl.h"
-%i "../../../DE0/sdcard_ctrl.h"
+%i "../../../OneChipMSX/sdram_ctrl.h"
+%i "../../../OneChipMSX/sdcard_ctrl.h"
 %i "../../../hdl/fat16.h"
-%i "../../../DE0/lcd_ctrl.h"
-%i "../../../DE0/keyboard_ctrl.h"
-%i "../../../DE0/vjtag_uart.h"
+%i "../../../OneChipMSX/keyboard_ctrl.h"
 
 %i "../nes_core.h"
 %i "../mapper/Mapper.h"
-%i "display_4.h"
+%i "display_5.h"
 %i "../../../hdl/VGA_ctrl.h"
-%i "../../../hdl/dsdac7.h"
-%i "DDS_50to5369318.h"
-//%i "DDS_50to1662607.h"
+%i "DDS_501to5369318.h"
 %i "dsdac16.h"
-%i "segtim.h"
 %i "wave_effect.h"
 
 #define VRC7
 
 circuit core
 {
-	input BUTTON<3>;
-	chatmask cmask_0, cmask_1, cmask_2;
-	sela btn[3];
-	input SW<10>;
-	seg7_ctrl seg7_0, seg7_1, seg7_2, seg7_3;
-	sel seg<16>;
-	output HEX0<7>, HEX1<7>, HEX2<7>, HEX3<7>;
-	output LEDG<10>;
+	output LEDP;
+	output LED<8>;
 //--------------------- SDRAM Interface --------------------
 	output SDRAM_CSn, SDRAM_WEn, SDRAM_DEn;
 	output SDRAM_RASn, SDRAM_CASn;
-	output SDRAM_BA<2>, SDRAM_ADDR<12>;
+	output SDRAM_BA<2>, SDRAM_ADDR<13>;
 	output SDRAM_LDQM, SDRAM_UDQM;
 	input  SDRAM_Din<16>;
 	output SDRAM_Dout<16>;
@@ -61,20 +48,17 @@ circuit core
 	mem keys[128];
 //--------------------- VGA --------------------------------
 	output VGA_HS, VGA_VS;
-	output VGA_R<4>, VGA_G<4>, VGA_B<4>;
-	reg_wr red_out_reg<4>, grn_out_reg<4>, blu_out_reg<4>;
+	output VGA_R<6>, VGA_G<6>, VGA_B<6>;
+	reg_wr red_out_reg<6>, grn_out_reg<6>, blu_out_reg<6>;
 	reg_wr clock25M_div;
 	VGA_ctrl vga;
-	Display_4 dis;
+	Display_5 dis;
 	reg_ws dis_timing;
 //-------------------- SOUND -------------------------------
 	dsdac16 dac_L, dac_R;
 	output Sound_Left, Sound_Right;
-//--------------------- LCD --------------------------------
-	lcd_ctrl lcd;
-	output LCD_RS, LCD_RW, LCD_EN, LCD_DATA<8>;
-
-	vjtag_uart vjtag;
+//--------------------- JoyPad -----------------------------
+	input JoyA<6>, JoyB<6>;
 
 	reg_ws reset;
 
@@ -86,19 +70,7 @@ circuit core
 
 	reg_wr file_num<8>;
 
-	sel sound_L_clip<14>, sound_R_clip<14>;
-	sel sound_L<14>, sound_R<14>;
-
-	reg_wr note_count<17>;
-	dsdac7 dac_sq1, dac_sq2, dac_tri, dac_noi, dac_dmc;
-	dsdac7 dac_mmc5, dac_n106, dac_fds, dac_vrc6, dac_sn5b, dac_vrc7;
-	reg_wr note_sq1<7>, note_sq2<7>, note_tri<7>, note_noi<7>, note_dmc<7>;
-	reg_wr note_mmc5<7>, note_n106<7>, note_fds<7>, note_vrc6<7>, note_sn5b<7>, note_vrc7<7>;
-
-	segtim segtim_0, segtim_1, segtim_2, segtim_3;
-
-	DDS_50to5369318 dds_ntsc;
-//	DDS_50to1662607 dds_pal;
+	DDS_501to5369318 dds_ntsc;
 
 	wave_effect wave;
 
@@ -108,9 +80,7 @@ circuit core
 	stage_name key2btn { task do(); }
 	stage_name key_seek { task next(); task back(); }
 	stage_name card2ram { task do(); }
-	stage_name vjtag2ram { task do(); }
 	stage_name prg_set_wait { task do(); }
-	stage_name lcd_view { task do(); }
 
 	if(reset){
 		reset := 0b0;
@@ -119,29 +89,7 @@ circuit core
 		generate card2ram.do();
 		file_num := 0;
 		generate key2btn.do();
-		generate lcd_view.do();
 	}
-
-	par(i=0;i<3;i++){
-		cmask[i].bin = ^BUTTON<i>; btn[i] = cmask[i].bout;
-	}
-
-	if(cart.f_nes | SW<1>){
-		HEX3 = seg7_3.con(seg<15:12>).oSEG;
-		HEX2 = seg7_2.con(seg<11: 8>).oSEG;
-		HEX1 = seg7_1.con(seg< 7: 4>).oSEG;
-		HEX0 = seg7_0.con(seg< 3: 0>).oSEG;
-	}
-	else{
-		HEX3 = segtim_3.oSEG;
-		HEX2 = segtim_2.oSEG;
-		HEX1 = segtim_1.oSEG;
-		HEX0 = segtim_0.oSEG;
-	}
-	instruct nes.tim_sq1 segtim_3.run();
-	instruct nes.tim_sq2 segtim_2.run();
-	instruct nes.tim_tri segtim_1.run();
-	instruct nes.tim_noi segtim_0.run();
 
 	SDRAM_CSn = sdram.CSn;
 	SDRAM_RASn = sdram.RASn;
@@ -162,6 +110,7 @@ circuit core
 
 	fat.sack = sdcard.ack;
 	fat.sdata = sdcard.rdata;
+	LEDP = sdcard.ack;
 
 	kb.ps2Clk = PS2_KBCLK;
 	kb.ps2Data = PS2_KBDAT;
@@ -185,33 +134,29 @@ circuit core
 		if(cart.f_nsf){
 			// 波形表示
 			wave.read(vga.hcount, vga.vcount);
-			red_out_reg := wave.r_out<4:1>;
-			grn_out_reg := wave.g_out<4:1>;
-			blu_out_reg := wave.b_out<4:1>;
+			red_out_reg := 0b0 || wave.r_out;
+			grn_out_reg := 0b0 || wave.g_out;
+			blu_out_reg := 0b0 || wave.b_out;
 		}
 		else{
-			red_out_reg := dis.r_out;
-			grn_out_reg := dis.g_out;
-			blu_out_reg := dis.b_out;
+			// 最上位ビットを使うとハイライトが強い
+			red_out_reg := 0b0 || dis.r_out;
+			grn_out_reg := 0b0 || dis.g_out;
+			blu_out_reg := 0b0 || dis.b_out;
 		}
 	}
 	else{
 		// NES画面外の色（ディスプレイ自動幅調整のため）
-		red_out_reg := 0b0001;
-		grn_out_reg := 0b0001;
-		blu_out_reg := 0b0001;
+		red_out_reg := 0b000001;
+		grn_out_reg := 0b000001;
+		blu_out_reg := 0b000001;
 	}
-	reg_wr VGA_HS_reg, VGA_VS_reg, VGA_R_reg<4>, VGA_G_reg<4>, VGA_B_reg<4>;
+	reg_wr VGA_HS_reg, VGA_VS_reg, VGA_R_reg<6>, VGA_G_reg<6>, VGA_B_reg<6>;
 	VGA_HS_reg := vga.hsync; VGA_HS = VGA_HS_reg;
 	VGA_VS_reg := vga.vsync; VGA_VS = VGA_VS_reg;
-	VGA_R_reg := red_out_reg & (4#vga.view_valid); VGA_R = VGA_R_reg;
-	VGA_G_reg := grn_out_reg & (4#vga.view_valid); VGA_G = VGA_G_reg;
-	VGA_B_reg := blu_out_reg & (4#vga.view_valid); VGA_B = VGA_B_reg;
-
-	LCD_RS = lcd.rs;
-	LCD_RW = lcd.rw;
-	LCD_EN = lcd.en;
-	LCD_DATA = lcd.data;
+	VGA_R_reg := red_out_reg & (6#vga.view_valid); VGA_R = VGA_R_reg;
+	VGA_G_reg := grn_out_reg & (6#vga.view_valid); VGA_G = VGA_G_reg;
+	VGA_B_reg := blu_out_reg & (6#vga.view_valid); VGA_B = VGA_B_reg;
 
 	nes.f_real_cartridge = 0b0;
 	nes.IRQn = cart.IRQn;
@@ -219,8 +164,8 @@ circuit core
 	nes.VRAM_A10 = cart.VRAM_A10;
 	if(^prg_read_ok) nes.ready();
 
-	nes.f_stereo = ^SW<0>;
-	nes.speed = SW<2>;
+	nes.f_stereo = 0b0;
+	nes.speed = 0b0;
 	nes.stop  = 0b0;
 	nes.f_nsf = cart.f_nsf;
 	instruct cart.NMI_out nes.nsf_NMI();
@@ -238,13 +183,21 @@ circuit core
 	cart.fat_eof = fat.eof;
 
 #ifdef VRC7
-	cart.mute = SW<9:3>;
+	cart.mute = 0b0000000;
 #else
-	cart.mute = SW<9:3> | 0b0000001;
+	// VRC7を一時除外
+	cart.mute = 0b0000001;
 #endif
+//nes.mute = 0b00000;
+
 	cart.nes_sound_L = nes.sound_L;
 	cart.nes_sound_R = nes.sound_R;
+	nes.f_volume_boost = 0b00100; // 三角波をブースト
+	cart.nes_volume_boost = nes.volume_boost;
 
+// クリップして逆位相サラウンド ok 切り替え時にプチノイズ
+	sel sound_L_clip<14>, sound_R_clip<14>;
+	sel sound_L<14>, sound_R<14>;
 	any{
 		cart.sound_L<14> : sound_L_clip = -1;
 		else : sound_L_clip = cart.sound_L<13:0>;
@@ -253,7 +206,7 @@ circuit core
 		cart.sound_R<14> : sound_R_clip = -1;
 		else : sound_R_clip = cart.sound_R<13:0>;
 	}
-	if(SW<1>){ // 逆位相サラウンド
+	if(0b0){ // 逆位相サラウンド
 		sound_L = sound_L_clip + 0b10000000000000; // 加算でプチノイズが消える
 		sound_R = -(sound_R_clip + 0b10000000000000);
 	}
@@ -261,21 +214,20 @@ circuit core
 		sound_L = sound_L_clip;
 		sound_R = sound_R_clip;
 	}
-	dac_L.DACin = sound_L || 0b00;
-	dac_R.DACin = sound_R || 0b00;
-	Sound_Left  = dac_L.DACout;
-	Sound_Right = dac_R.DACout;
+	dac_L.din = sound_L || 0b00;
+	dac_R.din = sound_R || 0b00;
+	Sound_Left  = dac_L.dout;
+	Sound_Right = dac_R.dout;
 
+	// MSXPAD : BA右左下上
 	// NESPAD : 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
-//	nes.pad1P = (btn_1 & ^btn_2) || 0b000 || (btn_2 & btn_1) || 0b00 || btn_2;
-	nes.pad1P =
-		((btn_1 || 0b000 || SW<0> || 0b00 || btn_2) & 8#(cart.f_nes & prg_read_ok)) |
-		(keys[0x74] || keys[0x6B] || keys[0x72] || keys[0x75] || keys[0x5A] || keys[0x29] || keys[0x1A] || keys[0x22]);
-	nes.pad2P = 0x00;
+	nes.pad1P = (JoyA<3:0> || 0b00 || JoyA<5:4>)
+		| (keys[0x74] || keys[0x6B] || keys[0x72] || keys[0x75] || keys[0x5A] || keys[0x29] || 
+			(keys[0x1A] | keys[0x1D]) || (keys[0x22] | keys[0x23])); // BA : ZW || XD
+	nes.pad2P = JoyB<3:0> || 0b00 || JoyB<5:4>;
 
-	LEDG = (0b00 || nes.pad1P) |
-		(dac_sq1.DACout || dac_sq2.DACout || dac_tri.DACout || dac_noi.DACout || dac_dmc.DACout ||
-		 dac_mmc5.DACout || dac_n106.DACout || dac_fds.DACout || dac_vrc6.DACout || (dac_sn5b.DACout | dac_vrc7.DACout));
+	LED = nes.pad1P /*| nes.pc_out<15:8>*/;
+//	LED = checksum;
 
 	// ソフトリセット
 	if(/&nes.pad1P<3:2>){
@@ -283,17 +235,19 @@ circuit core
 		cart.soft_reset();
 	}
 
-	seg = nes.pc_out;
-//	seg = nes.dbg;
-
-	if(cart.f_nsf) alt{
-		btn_2 : par{ // 進む
+	sel key_next, key_prev;
+//	if(cart.f_nsf){
+		key_next = keys[0x66];
+		if(key_next){ // 進む セレクト＋左
 			generate key_seek.next();
 		}
-		btn_1 : par{ // 戻る
+/*
+		key_prev = keys[0x29] & keys[0x74];
+		if(key_prev){ // 戻る セレクト＋右
 			generate key_seek.back();
 		}
-	}
+*/
+//	}
 
 	cart.ROM_SELn = nes.ROM_SELn;
 	cart.prg_A = nes.A;
@@ -327,7 +281,7 @@ circuit core
 			(^chr_read_wait) & (^chr_read_ack_wait) & (^chr_write_wait) & (^chr_write_ack_wait)
 		) | prg_read_wait
 		) & sdram.ack){
-		sdram.read(0b00||cart.prg_rom_adrs);
+		sdram.read(0b0000||cart.prg_rom_adrs);
 		prg_read_wait := 0b0;
 		prg_read_ack_wait := 0b1;
 	}
@@ -340,13 +294,13 @@ circuit core
 
 	// PRG-ROM writeは、ROM読み込み時のみなので排他処理不要。
 	instruct cart.prg_rom_write par{
-		sdram.write(0b00||cart.prg_rom_adrs, 0x00||cart.prg_rom_wdata);
+		sdram.write(0b0000||cart.prg_rom_adrs, 0x00||cart.prg_rom_wdata);
 	}
 
 	// CHR-ROM readは、PRG-ROM readアクセス終了待ち、ack必要。
 	if( (cart.chr_ram_read | chr_read_wait) &
 		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
-		sdram.read(0b0100||cart.chr_ram_adrs);
+		sdram.read(0b000100||cart.chr_ram_adrs);
 		chr_read_wait := 0b0;
 		chr_read_ack_wait := 0b1;
 	}
@@ -360,7 +314,7 @@ circuit core
 	// CHR-RAM writeは、PRG-ROM readアクセス終了待ち、ack不要。
 	if( (cart.chr_ram_write | chr_write_wait) &
 		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
-		sdram.write(0b0100||cart.chr_ram_adrs, 0x00||cart.chr_ram_wdata);
+		sdram.write(0b000100||cart.chr_ram_adrs, 0x00||cart.chr_ram_wdata);
 		chr_write_wait := 0b0;
 		chr_write_ack_wait := 0b1;
 	}
@@ -373,43 +327,6 @@ circuit core
 		dis.write(nes.video);
 	}
 
-	instruct nes.note_sq1 if(^cart.mute<6>) note_sq1 := 0b1111111;
-	instruct nes.note_sq2 if(^cart.mute<6>) note_sq2 := 0b1111111;
-	instruct nes.note_tri if(^cart.mute<6>) note_tri := 0b1111111;
-	instruct nes.note_noi if(^cart.mute<6>) note_noi := 0b1111111;
-	instruct nes.note_dmc if(^cart.mute<6>) note_dmc := 0b1111111;
-	instruct cart.note_mmc5 if(^cart.mute<5>) note_mmc5 := 0b1111111;
-	instruct cart.note_n106 if(^cart.mute<4>) note_n106 := 0b1111111;
-	instruct cart.note_fds  if(^cart.mute<3>) note_fds  := 0b1111111;
-	instruct cart.note_vrc6 if(^cart.mute<2>) note_vrc6 := 0b1111111;
-	instruct cart.note_sn5b if(^cart.mute<1>) note_sn5b := 0b1111111;
-	instruct cart.note_vrc7 if(^cart.mute<0>) note_vrc7 := 0b1111111;
-	note_count++;
-	if(/&note_count){
-		if(note_sq1!=0) note_sq1--;
-		if(note_sq2!=0) note_sq2--;
-		if(note_tri!=0) note_tri--;
-		if(note_noi!=0) note_noi--;
-		if(note_dmc!=0) note_dmc--;
-		if(note_mmc5!=0) note_mmc5--;
-		if(note_n106!=0) note_n106--;
-		if(note_fds!=0)  note_fds--;
-		if(note_vrc6!=0) note_vrc6--;
-		if(note_sn5b!=0) note_sn5b--;
-		if(note_vrc7!=0) note_vrc7--;
-	}
-	dac_sq1.DACin = note_sq1;
-	dac_sq2.DACin = note_sq2;
-	dac_tri.DACin = note_tri;
-	dac_noi.DACin = note_noi;
-	dac_dmc.DACin = note_dmc;
-	dac_mmc5.DACin = note_mmc5;
-	dac_n106.DACin = note_n106;
-	dac_fds.DACin = note_fds;
-	dac_vrc6.DACin = note_vrc6;
-	dac_sn5b.DACin = note_sn5b;
-	dac_vrc7.DACin = note_vrc7;
-
 	instruct vga.dis par{
 		if(dis_timing) dis.read();
 		dis_timing := ^dis_timing;
@@ -421,7 +338,7 @@ circuit core
 	}
 
 	instruct dds_ntsc.run par{ // 5.369318MHz
-		if(prg_read_ok /*& ^cart.f_nsf_PAL*/){
+		if(prg_read_ok){
 			nes.run();
 		}
 	}
@@ -429,19 +346,9 @@ circuit core
 	instruct nes.clk_out par{
 		cart.clock1789k();
 	}
-/*
-	instruct dds_pal_clk.run par{
-		if(prg_read_ok & cart.f_nsf_PAL){
-			nes.run();
-		}
-	}
-*/
+
 	instruct fat.sread par{
 		sdcard.read(fat.sadrs);
-	}
-
-	instruct vjtag.recv par{
-		generate vjtag2ram.do();
 	}
 
 	stage clock3580k {
@@ -517,8 +424,8 @@ circuit core
 			goto st2;
 		}
 		state st2 if(^card2ram.do){
-			if((key_seek.next & (^btn_2))
-			 | (key_seek.back & (^btn_1))){
+			if((key_seek.next & (^key_next))
+			 | (key_seek.back & (^key_prev))){
 				goto iwait;
 				finish;
 			}
@@ -530,9 +437,9 @@ circuit core
 		state rbegin if(fat.ack){
 			prg_read_ok := 0b0;
 			fat.fopen(file_num);
-			goto fatr;
+			goto fatrh;
 		}
-		state fatr if(fat.ack){
+		state fatrh if(fat.ack){
 			fat.read();
 			goto head;
 		}
@@ -570,28 +477,6 @@ circuit core
 		}
 	}
 
-	stage vjtag2ram {
-		first_state rbegin;
-		finish;
-		state rbegin par{
-			prg_read_ok := 0b0;
-			nes.mem_clear();
-			cart.set_map(vjtag.recv_data); // Mapper ID
-			goto maps;
-		}
-		state maps par{
-			cart.attach(vjtag.recv_data);
-			if(cart.set_ok) goto rend;
-		}
-		state rend par{
-			nes.soft_reset();
-			cart.soft_reset();
-			prg_read_ok := 0b1;
-		//	generate prg_set_wait.do();
-			goto rbegin;
-		}
-	}
-
 	stage prg_set_wait {
 		reg_wr pwait<4>;
 		par{
@@ -600,40 +485,6 @@ circuit core
 				prg_read_ok := 0b1;
 				finish;
 			}
-		}
-	}
-
-	stage lcd_view {
-		reg_wr str_view_reg<256>;
-		reg_wr lw_count<26>, chr_shift<5>;
-		first_state st1;
-		par{
-			lcd.str0 = str_view_reg<255:128>;
-			lcd.str1 = cart.artist_str;
-			if(0b0) finish;
-		}
-		state st1 if(lcd.ack & prg_read_ok){
-			str_view_reg := cart.title_str;
-			lcd.view_on();
-			lw_count := 0;
-			chr_shift := 0;
-			if(cart.title_length<4> & /|cart.title_length<3:0>) goto st1w;
-		}
-		state st1w par{
-			lw_count++;
-			if(/&lw_count) goto st2;
-			if(^prg_read_ok) goto st1;
-		}
-		state st2 if(lcd.ack){
-			if(lw_count==20000000){
-				str_view_reg := str_view_reg<247:0> || ' ';
-				lcd.view_on();
-				lw_count := 0;
-				chr_shift++;
-				if(chr_shift==cart.title_length) goto st1;
-			}
-			else lw_count++;
-			if(^prg_read_ok) goto st1;
 		}
 	}
 

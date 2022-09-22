@@ -20,6 +20,7 @@ circuit n106_core
 	instrin run, ready;
 
 	output sound<7>;
+	reg_wr sound_reg<7>;
 	instrout note_on;
 
 	reg_wr adrs<7>, auto_inc;
@@ -45,7 +46,7 @@ circuit n106_core
 	if(io_read) io_Dout_reg := io_Dout;
 	else io_Dout = io_Dout_reg;
 
-	sound = 
+	sound_reg := 
 		(0b000 || chout_0) +
 		(0b000 || chout_1) +
 		(0b000 || chout_2) +
@@ -54,10 +55,11 @@ circuit n106_core
 		(0b000 || chout_5) +
 		(0b000 || chout_6) +
 		(0b000 || chout_7);
+	sound = sound_reg;
 
 	instruct ready par{
 		par(i=0;i<8;i++){
-			volume[i] := 0x0;
+			volume[i] := 0x0; chout[i] := 0;
 		}
 	}
 

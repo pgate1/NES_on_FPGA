@@ -27,10 +27,8 @@ circuit Mapper069
 	output usound<11>, ssound<14>;
 
 	// 外部RAMへのアクセス
-	instrout prg_ram_read(prg_ram_adrs);
-	output prg_ram_adrs<18>; // PRG_ROM max 256KB
-//	output prg_ram_wdata<8>;
-//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	instrout prg_rom_read(prg_rom_adrs);
+	output prg_rom_adrs<18>; // PRG_ROM max 256KB
 	input prg_rom_rdata<8>;
 
 	instrout chr_ram_read(chr_ram_adrs);
@@ -129,10 +127,10 @@ input dbg<8>;
 				case 0b10: prg_read_bank = prg_bank6;
 				case 0b11: prg_read_bank = prg_last_bank;
 			}
-			prg_ram_read((prg_read_bank<4> & n16kRomBanks<4>)
+			prg_rom_read((prg_read_bank<4> & n16kRomBanks<4>)
 						|| prg_read_bank<3:0> || prg_A<12:0>);
 		}
-		map_exram : prg_ram_read(prg_bank3 || prg_A<12:0>);
+		map_exram : prg_rom_read(prg_bank3 || prg_A<12:0>);
 	}
 
 	instruct prg_write any{

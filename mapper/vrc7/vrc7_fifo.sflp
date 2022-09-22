@@ -10,12 +10,6 @@ declare vm2413_interface
 	instr_arg write(A, D);
 }
 
-#define PREFIX_DPRAM
-
-#ifdef PREFIX_DPRAM
-%i "../../../../hdl/dpram_16x256.h"
-#endif
-
 circuit vrc7_fifo
 {
 	instrin run, ready;
@@ -23,13 +17,13 @@ circuit vrc7_fifo
 	input A, D<8>;
 	instrin write(A, D);
 
-#ifndef PREFIX_DPRAM
-	mem cells[256]<9>;
-	reg_wr wdata<9>;
-#endif
-#ifdef PREFIX_DPRAM
-	dpram_16x256 dpram;
-#endif
+	mem fifo[256]<9>;
+	sel fifo_wadrs<8>, fifo_din<9>;
+	instrself fifo_write(fifo_wadrs, fifo_din);
+	sel fifo_radrs<8>;
+	instrself fifo_read(fifo_radrs);
+	reg_wr fifo_dout<9>;
+
 	reg_wr wadrs<8>, radrs<8>;
 
 	vm2413_interface vm2413inf;
@@ -45,14 +39,12 @@ circuit vrc7_fifo
 	sound = sound_reg;
 //	sound = 0b000 || vm2413inf.sound;
 
+	instruct fifo_write fifo[fifo_wadrs] := fifo_din;
+	instruct fifo_read fifo_dout := fifo[fifo_radrs];
+
 // CPUサイクル約1.78MHz×2でwriteされる
 	instruct write par{
-#ifndef PREFIX_DPRAM
-		cells[wadrs] := A || D;
-#endif
-#ifdef PREFIX_DPRAM
-		dpram.write(wadrs, 0b0000000||A||D);
-#endif
+		fifo_write(wadrs, A||D);
 		wadrs++;
 	}
 
@@ -74,25 +66,16 @@ circuit vrc7_fifo
 		first_state read_st;
 		finish;
 		state read_st par{
-#ifndef PREFIX_DPRAM
+		//	if(/|(radrs@wadrs)){
 			if(radrs!=wadrs){ // sfl2vhで変換するとModelSimで構文エラー
-				wdata := cells[radrs];
-#endif
-#ifdef PREFIX_DPRAM
-			if(/|(radrs@wadrs)){
-				dpram.read(radrs);
-#endif
+				fifo_read(radrs);
 				goto write_st;
 			}
 		}
 		state write_st par{
 			radrs++;
-#ifndef PREFIX_DPRAM
-			vm2413inf.write(wdata<8>, wdata<7:0>);
-#endif
-#ifdef PREFIX_DPRAM
-			vm2413inf.write(dpram.dout<8>, dpram.dout<7:0>);
-#endif
+			vm2413inf.write(fifo_dout<8>, fifo_dout<7:0>);
+
 			if(vm2413inf.A) count := 0b1000111; // 72-1
 // from doc.
 //			if(vm2413inf.A) count := 0b1010011; // 84-1

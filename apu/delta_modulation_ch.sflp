@@ -12,7 +12,7 @@ circuit delta_modulation_ch
 	instrin ctrl(f_ctrl);
 	input f_ctrl;
 	reg_wr enable;
-	instrin run;
+	instrin run, ready;
 
 	instrin dma_clock, clear_irq;
 	instrout read(dma_adrs);
@@ -122,6 +122,11 @@ dbg = rest_count<7:0>;
 			rest_count := 0;
 		//	delta_count := 0; // test
 		}
+	}
+
+	instruct ready par{
+		delta_count := 0;
+		delta_count0 := 0b0;
 	}
 
 	instruct clear_irq par{ // mpu.run + 2clk

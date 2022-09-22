@@ -25,10 +25,8 @@ circuit Mapper003
 	output usound<11>, ssound<14>;
 
 	// 外部RAMへのアクセス
-	instrout prg_ram_read(prg_ram_adrs);
-	output prg_ram_adrs<15>; // PRG_ROM max 32KB
-//	output prg_ram_wdata<8>;
-//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	instrout prg_rom_read(prg_rom_adrs);
+	output prg_rom_adrs<15>; // PRG_ROM max 32KB
 	input prg_rom_rdata<8>;
 
 	instrout chr_ram_read(chr_ram_adrs);
@@ -75,7 +73,7 @@ circuit Mapper003
 
 	instruct prg_read par{
 		if(ROM_SELn==0b0){
-			prg_ram_read(prg_A<14:0>);
+			prg_rom_read(prg_A<14:0>);
 		}
 	}
 

@@ -32,8 +32,12 @@ circuit apu_core
 	output dmc_adrs<16>;
 	instrin dmc_read_ack;
 
-	input f_stereo;
-	output volume_L<8>, volume_R<8>;
+	input f_stereo, mute<5>;
+	output sound_L<8>, sound_R<8>;
+	reg_wr sound_L_reg<8>, sound_R_reg<8>;
+	input f_volume_boost<5>;
+	output volume_boost<8>;
+	reg_wr volume_boost_reg<8>;
 
 	instrout sq1_note_on, sq2_note_on, tri_note_on, noi_note_on, dmc_note_on;
 	instrout sq1_tim, sq2_tim, tri_tim, noi_tim;
@@ -147,29 +151,49 @@ output dbg<8>;
 
 	dmc.d7bit = dpcm_7bit;
 
-	volume_L =
-		  (0b000 || sq1.volume || 0b0)
-		+ (0b000 || delay_60.dout<7:4> || 0b0)
-		+ (0b000 || trig.volume || 0b0)
-		+ (0b000 || delay_30.dout<7:4> || 0b0)
-		+ (0b0 || dmc.volume)
-		;
-	volume_R =
-		  (0b000 || delay_60.dout<3:0> || 0b0)
-		+ (0b000 || sq2.volume || 0b0)
-		+ (0b000 || delay_30.dout<3:0> || 0b0)
-		+ (0b000 || noise.volume || 0b0)
-		+ (0b0 || dmc.volume)
-		;
+// sq1<4><<1 31-0
+// sq2<4><<1 31-0
+// tri<4><<1 31-0
+// noi<4><<1 31-0
+// dmc<7>   127-0
+// mix      251-0
+
+	sound_L_reg :=
+		  ((0b000 || sq1.volume || 0b0)         & (8#^mute<4>))
+		+ ((0b000 || delay_60.dout<7:4> || 0b0) & (8#^mute<3>))
+		+ ((0b000 || trig.volume || 0b0)        & (8#^mute<2>))
+		+ ((0b000 || delay_30.dout<7:4> || 0b0) & (8#^mute<1>))
+		+ ((0b0 || dmc.volume)                  & (8#^mute<0>));
+	sound_R_reg :=
+		  ((0b000 || delay_60.dout<3:0> || 0b0) & (8#^mute<4>))
+		+ ((0b000 || sq2.volume || 0b0)         & (8#^mute<3>))
+		+ ((0b000 || delay_30.dout<3:0> || 0b0) & (8#^mute<2>))
+		+ ((0b000 || noise.volume || 0b0)       & (8#^mute<1>))
+		+ ((0b0 || dmc.volume)                  & (8#^mute<0>));
+	sound_L = sound_L_reg;
+	sound_R = sound_R_reg;
+
+	volume_boost_reg :=
+		  ((0b000 || sq1.volume || 0b0)   & (8#f_volume_boost<4>))
+		+ ((0b000 || sq2.volume || 0b0)   & (8#f_volume_boost<3>))
+		+ ((0b000 || trig.volume || 0b0)  & (8#f_volume_boost<2>))
+		+ ((0b000 || noise.volume || 0b0) & (8#f_volume_boost<1>))
+		+ ((0b0 || dmc.volume)            & (8#f_volume_boost<0>));
+	volume_boost = volume_boost_reg;
 
 dbg = dmc.dbg;
 
 	instruct ready par{
 		sq1.ctrl(0b0);
+		sq1.ready();
 		sq2.ctrl(0b0);
+		sq2.ready();
 		trig.ctrl(0b0);
+		trig.ready(); // 20220807追加
 		noise.ctrl(0b0);
+		noise.ready();
 		dmc.ctrl(0b0);
+		dmc.ready();
 		dmc.clear_irq();
 
 		sq1.init();
@@ -236,7 +260,7 @@ Readしてしまう問題がある。解決方法としてはppmckの最新版を使用すること。
 	}
 
 	// 外部からのmpuクロックで動作
-	instruct run par{
+	instruct run if(^ready){
 		generate FrameSequencer.do();
 		sq1.run();
 		sq2.run();

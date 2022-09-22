@@ -10,7 +10,7 @@ circuit triangle_ch
 	instrin write(adrs, din);
 	input adrs<2>, din<8>;
 
-	instrin run, ctrl(f_ctrl);
+	instrin run, ready, ctrl(f_ctrl);
 	input f_ctrl;
 
 	instrin LinearCount;
@@ -88,6 +88,15 @@ circuit triangle_ch
 			old_period := 0;
 		}
 		len.enable(f_ctrl);
+	}
+
+	instruct ready par{
+		linear_ctrl := 0b0;
+		linear_load := 0;
+		linear_count := 0;
+		linear_start := 0b0;
+		len.halt(0b1);
+		tri_vol := 0;
 	}
 
 	// 外部からのmpuクロックで動作 1.79MHz

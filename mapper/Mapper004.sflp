@@ -32,10 +32,8 @@ circuit Mapper004
 	input exram_rdata<8>;
 
 	// 外部RAMへのアクセス
-	instrout prg_ram_read(prg_ram_adrs);
-	output prg_ram_adrs<19>; // PRG_ROM max 512KB
-//	output prg_ram_wdata<8>;
-//	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	instrout prg_rom_read(prg_rom_adrs);
+	output prg_rom_adrs<19>; // PRG_ROM max 512KB
 	input prg_rom_rdata<8>;
 
 	instrout chr_ram_read(chr_ram_adrs);
@@ -181,7 +179,7 @@ instrin hblank;
 					case 0b11: prg_read_bank = prg_last_bank || 0b1;
 				}
 			}
-			prg_ram_read(prg_read_bank || prg_A<12:0>);
+			prg_rom_read(prg_read_bank || prg_A<12:0>);
 		}
 		map_exram : exram_read(prg_A<12:0>);
 	}
