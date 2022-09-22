@@ -1,37 +1,37 @@
       NES on FPGA feat. 1chipMSX
                                          by pgate1
 
-EŠT—v
+ãƒ»æ¦‚è¦
 
-NESƒ}ƒbƒp[@0,1,2,3,4,25,73‚ðŽÀ‘•‚µ‚Ä‚¢‚Ü‚·B
-DQ1,2,3,4, FF1,FF2,FF3, ƒOƒ‰ƒfƒBƒEƒXII, ¹—…™ÖŽÖ,‚È‚ÇB
+NESãƒžãƒƒãƒ‘ãƒ¼ã€€0,1,2,3,4,25,73ã‚’å®Ÿè£…ã—ã¦ã„ã¾ã™ã€‚
+DQ1,2,3,4, FF1,FF2,FF3, ã‚°ãƒ©ãƒ‡ã‚£ã‚¦ã‚¹II, æ²™ç¾…æ›¼è›‡,ãªã©ã€‚
 
-JoyPadƒTƒ|[ƒg‚Å‚·‚ªAƒXƒ^[ƒg‚ÆƒZƒŒƒNƒg‚Í
-‚ÍPS/2ƒL[ƒ{[ƒh‚ðŽg—p‚µ‚Ä‚­‚¾‚³‚¢B
+JoyPadã‚µãƒãƒ¼ãƒˆã§ã™ãŒã€ã‚¹ã‚¿ãƒ¼ãƒˆã¨ã‚»ãƒ¬ã‚¯ãƒˆã¯
+ã¯PS/2ã‚­ãƒ¼ãƒœãƒ¼ãƒ‰ã‚’ä½¿ç”¨ã—ã¦ãã ã•ã„ã€‚
 
-EŽg—p•û–@
+ãƒ»ä½¿ç”¨æ–¹æ³•
 
-1chipMSX‚ÆPC‚ðƒ_ƒEƒ“ƒ[ƒhƒP[ƒuƒ‹‚ÅÚ‘±ŒãA
-NES.pof‚ðASƒ‚[ƒh‚Å‘‚«ž‚ñ‚Å‚­‚¾‚³‚¢B
-Ž©ŒÈÓ”C‚Å‚¨Šè‚¢‚µ‚Ü‚·B
+1chipMSXã¨PCã‚’ãƒ€ã‚¦ãƒ³ãƒ­ãƒ¼ãƒ‰ã‚±ãƒ¼ãƒ–ãƒ«ã§æŽ¥ç¶šå¾Œã€
+NES.pofã‚’ASãƒ¢ãƒ¼ãƒ‰ã§æ›¸ãè¾¼ã‚“ã§ãã ã•ã„ã€‚
+è‡ªå·±è²¬ä»»ã§ãŠé¡˜ã„ã—ã¾ã™ã€‚
 
-SDƒJ[ƒh‚Í32MB`2GB‚ÌFAT16‚ÅƒtƒH[ƒ}ƒbƒg‚³‚ê‚½‚à‚Ì‚ðƒTƒ|[ƒg‚µ‚Ä‚¢‚Ü‚·B
+SDã‚«ãƒ¼ãƒ‰ã¯32MBï½ž2GBã®FAT16ã§ãƒ•ã‚©ãƒ¼ãƒžãƒƒãƒˆã•ã‚ŒãŸã‚‚ã®ã‚’ã‚µãƒãƒ¼ãƒˆã—ã¦ã„ã¾ã™ã€‚
 
-E‘€ì
+ãƒ»æ“ä½œ
 
-ƒpƒbƒh : ƒL[ƒ{[ƒh
-  \ŽšƒL[: •ûŒüƒL[
-@A    :   Z, D
+ãƒ‘ãƒƒãƒ‰ : ã‚­ãƒ¼ãƒœãƒ¼ãƒ‰
+  åå­—ã‚­ãƒ¼: æ–¹å‘ã‚­ãƒ¼
+ã€€A    :   Z, D
   B    :   X, W
   Start:   Enter
   Select:  Space
 
-EXV—š—ð
+ãƒ»æ›´æ–°å±¥æ­´
 
 Ver.20220922
-E1chipMSX—p‚ÉˆÚAB
+ãƒ»1chipMSXç”¨ã«ç§»æ¤ã€‚
 
 ==============================================================
-“]Ú‹y‚Ñ”Ì”„‚ð‹ÖŽ~‚µ‚Ä‚¢‚Ü‚·B
+è»¢è¼‰åŠã³è²©å£²ã‚’ç¦æ­¢ã—ã¦ã„ã¾ã™ã€‚
 Web https://pgate1.at-ninja.jp
 Twitter https://twitter.com/pgate1

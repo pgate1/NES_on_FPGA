@@ -1,33 +1,34 @@
       NES on FPGA feat. DE0
                                          by pgate1
 
-�E�T�v
+・概要
 
-NES�}�b�p�[�@0,1,2,3,4���������Ă��܂��B
-DQ1,2,3,4, FF1,FF2,FF3�ȂǁB
-NSF�Đ��@�\�A�e��g����������(MMC5,N106,FDS,VRC6,SN5B,VRC7)�B
+NESマッパー　0,1,2,3,4を実装しています。
+DQ1,2,3,4, FF1,FF2,FF3など。
+NSF再生機能、各種拡張音源搭載(MMC5,N106,FDS,VRC6,SN5B,VRC7)。
 
-�����PS/2�L�[�{�[�h���g�p���Ă��������B
+操作はPS/2キーボードを使用してください。
+SDカードは32MB～2GBのFAT16でフォーマットされたものをサポートしています。
 
-�E����
+・操作
 
-�p�b�h : �L�[�{�[�h,�{�^��
-�@A    :   Z,�{�^��2
+パッド : キーボード,ボタン
+　A    :   Z,ボタン2
   B    :   X
   Start:   Space
-  Select:  S,�X�C�b�`0
-  �\���L�[:�����L�[
-  �E    :  �{�^��1
+  Select:  S,スイッチ0
+  十字キー:方向キー
+  右    :  ボタン1
 
-�E�X�V����
+・更新履歴
 
 Ver.20220922
-�ECHR-ROM512kB�܂ŃT�|�[�g�B
-�ENSF�Đ����̉�ʃG�t�F�N�g�ǉ��B
+・CHR-ROM512kBまでサポート。
+・NSF再生時の画面エフェクト追加。
 Ver.20170818
-�EDE0�p�ɈڐA�B������DQ1�̂��߂�VRC7�͐��������B
+・DE0用に移植。ただしDQ1のためにVRC7は制限した。
 
 ==============================================================
-�]�ڋy�є̔����֎~���Ă��܂��B
+転載及び販売を禁止しています。
 Web https://pgate1.at-ninja.jp
 Twitter https://twitter.com/pgate1
