@@ -67,6 +67,9 @@ circuit Mapper
 
 	reg_wr mapper_id<8>;
 
+	input mapper_enable<256>;
+	output supported;
+
 output dbg<16>;
 
 #ifdef MapNSF
@@ -210,7 +213,9 @@ input dbg_in<8>;
 	instrin tim1MHz;
 	output f_nsf, f_nsf_PAL;
 	instrout NMI_out;
+#ifdef MapNSF
 	output title_str<256>, title_length<5>, artist_str<128>;
+#endif
 
 	stage_name attach_stg { task do(set_data); }
 	stage_name exram_init { task do(); }
@@ -228,263 +233,263 @@ input dbg_in<8>;
 	}
 	ext_ram_dout = exram.dout;
 
-	par{
+	if(prg_rom_read | prg_rom_write) prg_rom_adrs_reg := prg_rom_adrs;
+	else prg_rom_adrs = prg_rom_adrs_reg;
 
-		if(prg_rom_read | prg_rom_write) prg_rom_adrs_reg := prg_rom_adrs;
-		else prg_rom_adrs = prg_rom_adrs_reg;
+	if(chr_ram_read | chr_ram_write) chr_ram_adrs_reg := chr_ram_adrs;
+	else chr_ram_adrs = chr_ram_adrs_reg;
+	if(chr_ram_write) chr_ram_wdata_reg := chr_ram_wdata;
+	else chr_ram_wdata = chr_ram_wdata_reg;
 
-		if(chr_ram_read | chr_ram_write) chr_ram_adrs_reg := chr_ram_adrs;
-		else chr_ram_adrs = chr_ram_adrs_reg;
-		if(chr_ram_write) chr_ram_wdata_reg := chr_ram_wdata;
-		else chr_ram_wdata = chr_ram_wdata_reg;
-
-		instruct prg_rom_ack prg_ack();
-		instruct chr_ram_ack chr_ack();
+	instruct prg_rom_ack prg_ack();
+	instruct chr_ram_ack chr_ack();
 
 #ifdef MapNSF
-		if(f_nsf) mapper_nsf.mute = mute<5:0>;
-		else mapper_nsf.mute = 0b111111;
+	if(f_nsf) mapper_nsf.mute = mute<5:0>;
+	else mapper_nsf.mute = 0b111111;
 
-		usound_L = // <11>
-			((0b00||nes_sound_L||0b0) & (11#(^mute<6>))) // <8>
-			+ ((0b00||nes_volume_boost||0b0) & (11#(^mute<6>))) // <8>
-			+ mapper_nsf.usound // <11>
-			+ mapper_019.usound // <11>
-			+ mapper_069.usound;
+	usound_L = // <11>
+		((0b00||nes_sound_L||0b0) & (11#(^mute<6>))) // <8>
+		+ ((0b00||nes_volume_boost||0b0) & (11#(^mute<6>))) // <8>
+		+ mapper_nsf.usound // <11>
+		+ mapper_019.usound // <11>
+		+ mapper_069.usound;
 
-		usound_R =
-			((0b00||nes_sound_R||0b0) & (11#(^mute<6>)))
-			+ ((0b00||nes_volume_boost||0b0) & (11#(^mute<6>))) // <8>
-			+ mapper_nsf.usound
-			+ mapper_019.usound
-			+ mapper_069.usound;
+	usound_R =
+		((0b00||nes_sound_R||0b0) & (11#(^mute<6>)))
+		+ ((0b00||nes_volume_boost||0b0) & (11#(^mute<6>))) // <8>
+		+ mapper_nsf.usound
+		+ mapper_019.usound
+		+ mapper_069.usound;
 
-		sound_L = // <15u>
-			(0b0 || usound_L || 0b000) // <11>
-			+ (0b0 || mapper_nsf.ssound); // <14u> VRC7
-		sound_R = 
-			(0b0 || usound_R || 0b000) // <11>
-			+ (0b0 || mapper_nsf.ssound); // <14u> VRC7
+	sound_L = // <15u>
+		(0b0 || usound_L || 0b000) // <11>
+		+ (0b0 || mapper_nsf.ssound); // <14u> VRC7
+	sound_R = 
+		(0b0 || usound_R || 0b000) // <11>
+		+ (0b0 || mapper_nsf.ssound); // <14u> VRC7
 
-		mapper_nsf.set_eof = fat_eof;
+	mapper_nsf.set_eof = fat_eof;
 dbg = mapper_nsf.dbg;
 #else
-		usound_L = // <11>
-			(0b00||nes_sound_L||0b0) // <8>
-			+ (0b00||nes_volume_boost||0b0) // <8>
-			+ mapper_019.usound // <11>
-			+ mapper_069.usound;
+	usound_L = // <11>
+		(0b00||nes_sound_L||0b0) // <8>
+		+ (0b00||nes_volume_boost||0b0) // <8>
+		+ mapper_019.usound // <11>
+		+ mapper_069.usound;
 
-		usound_R =
-			(0b00||nes_sound_R||0b0)
-			+ (0b00||nes_volume_boost||0b0) // <8>
-			+ mapper_019.usound // <11>
-			+ mapper_069.usound;
+	usound_R =
+		(0b00||nes_sound_R||0b0)
+		+ (0b00||nes_volume_boost||0b0) // <8>
+		+ mapper_019.usound // <11>
+		+ mapper_069.usound;
 
-		sound_L = // <15u>
-			(0b0 || usound_L || 0b000); // <11>
-//		   + (15#mapper.ssound); // <14s>
-		sound_R = 
-			(0b0 || usound_R || 0b000); // <11>
-//		   + (15#mapper.ssound);
+	sound_L = // <15u>
+		(0b0 || usound_L || 0b000); // <11>
+//		+ (15#mapper.ssound); // <14s>
+	sound_R = 
+		(0b0 || usound_R || 0b000); // <11>
+//		+ (15#mapper.ssound);
 #endif
 
-		ack = (^attach_stg.do) & mapper_nsf.ack;
+	ack = (^attach_stg.do) & mapper_nsf.ack;
+
+	supported = mapper_enable<mapper_id>;
 
 #ifdef MapNSF
-		mapper_nsf.prg_rom_rdata = prg_rom_rdata;
-		mapper_nsf.ROM_SELn = ROM_SELn;
-		mapper_nsf.prg_A = prg_A;
-		mapper_nsf.prg_Din = prg_Din;
-		mapper_nsf.exram_rdata = ext_ram_dout;
-		f_nsf_PAL = mapper_nsf.f_PAL;
-		title_str = mapper_nsf.title_str;
-		title_length = mapper_nsf.title_length;
-		artist_str = mapper_nsf.artist_str;
-		instruct mapper_nsf.exrom_ack prg_ack();
+	mapper_nsf.prg_rom_rdata = prg_rom_rdata;
+	mapper_nsf.ROM_SELn = ROM_SELn;
+	mapper_nsf.prg_A = prg_A;
+	mapper_nsf.prg_Din = prg_Din;
+	mapper_nsf.exram_rdata = ext_ram_dout;
+	f_nsf_PAL = mapper_nsf.f_PAL;
+	title_str = mapper_nsf.title_str;
+	title_length = mapper_nsf.title_length;
+	artist_str = mapper_nsf.artist_str;
+	instruct mapper_nsf.exrom_ack prg_ack();
 #endif
 #ifdef Map000
-		mapper_000.prg_rom_rdata = prg_rom_rdata;
-		mapper_000.ROM_SELn = ROM_SELn;
-		mapper_000.prg_A = prg_A;
-		mapper_000.prg_Din = prg_Din;
-		mapper_000.chr_A = chr_A;
-		mapper_000.chr_ram_rdata = chr_ram_rdata;
-		mapper_000.n16kRomBanks = n16kRomBanks;
-		mapper_000.fMirroringType = fMirroringType;
+	mapper_000.prg_rom_rdata = prg_rom_rdata;
+	mapper_000.ROM_SELn = ROM_SELn;
+	mapper_000.prg_A = prg_A;
+//	mapper_000.prg_Din = prg_Din;
+	mapper_000.chr_A = chr_A;
+	mapper_000.chr_ram_rdata = chr_ram_rdata;
+	mapper_000.n16kRomBanks = n16kRomBanks;
+	mapper_000.fMirroringType = fMirroringType;
 #endif
 #ifdef Map001
-		mapper_001.prg_rom_rdata = prg_rom_rdata;
-		mapper_001.ROM_SELn = ROM_SELn;
-		mapper_001.prg_A = prg_A;
-		mapper_001.prg_Din = prg_Din;
-		mapper_001.chr_A = chr_A;
-		mapper_001.chr_Din = chr_Din;
-		mapper_001.chr_ram_rdata = chr_ram_rdata;
-		mapper_001.n16kRomBanks = n16kRomBanks;
-		mapper_001.n8kVRomBanks = n8kVRomBanks;
-		mapper_001.fMirroringType = fMirroringType;
-		mapper_001.exram_rdata = ext_ram_dout;
+	mapper_001.prg_rom_rdata = prg_rom_rdata;
+	mapper_001.ROM_SELn = ROM_SELn;
+	mapper_001.prg_A = prg_A;
+	mapper_001.prg_Din = prg_Din;
+	mapper_001.chr_A = chr_A;
+	mapper_001.chr_Din = chr_Din;
+	mapper_001.chr_ram_rdata = chr_ram_rdata;
+	mapper_001.n16kRomBanks = n16kRomBanks;
+	mapper_001.n8kVRomBanks = n8kVRomBanks;
+	mapper_001.fMirroringType = fMirroringType;
+	mapper_001.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map002
-		mapper_002.prg_rom_rdata = prg_rom_rdata;
-		mapper_002.ROM_SELn = ROM_SELn;
-		mapper_002.prg_A = prg_A;
-		mapper_002.prg_Din = prg_Din;
-		mapper_002.chr_A = chr_A;
-		mapper_002.chr_Din = chr_Din;
-		mapper_002.chr_ram_rdata = chr_ram_rdata;
-		mapper_002.n16kRomBanks = n16kRomBanks;
-		mapper_002.fMirroringType = fMirroringType;
+	mapper_002.prg_rom_rdata = prg_rom_rdata;
+	mapper_002.ROM_SELn = ROM_SELn;
+	mapper_002.prg_A = prg_A;
+	mapper_002.prg_Din = prg_Din;
+	mapper_002.chr_A = chr_A;
+	mapper_002.chr_Din = chr_Din;
+	mapper_002.chr_ram_rdata = chr_ram_rdata;
+	mapper_002.n16kRomBanks = n16kRomBanks;
+	mapper_002.fMirroringType = fMirroringType;
 #endif
 #ifdef Map003
-		mapper_003.prg_rom_rdata = prg_rom_rdata;
-		mapper_003.ROM_SELn = ROM_SELn;
-		mapper_003.prg_A = prg_A;
-		mapper_003.prg_Din = prg_Din;
-		mapper_003.chr_A = chr_A;
-		mapper_003.chr_ram_rdata = chr_ram_rdata;
-		mapper_003.fMirroringType = fMirroringType;
+	mapper_003.prg_rom_rdata = prg_rom_rdata;
+	mapper_003.ROM_SELn = ROM_SELn;
+	mapper_003.prg_A = prg_A;
+	mapper_003.prg_Din = prg_Din;
+	mapper_003.chr_A = chr_A;
+	mapper_003.chr_ram_rdata = chr_ram_rdata;
+	mapper_003.fMirroringType = fMirroringType;
 #endif
 #ifdef Map004
-		mapper_004.prg_rom_rdata = prg_rom_rdata;
-		mapper_004.ROM_SELn = ROM_SELn;
-		mapper_004.prg_A = prg_A;
-		mapper_004.prg_Din = prg_Din;
-		mapper_004.chr_A = chr_A;
-		mapper_004.chr_Din = chr_Din;
-		mapper_004.chr_ram_rdata = chr_ram_rdata;
-		mapper_004.n16kRomBanks = n16kRomBanks;
-		mapper_004.n8kVRomBanks = n8kVRomBanks;
-		mapper_004.fMirroringType = fMirroringType;
-		mapper_004.exram_rdata = ext_ram_dout;
+	mapper_004.prg_rom_rdata = prg_rom_rdata;
+	mapper_004.ROM_SELn = ROM_SELn;
+	mapper_004.prg_A = prg_A;
+	mapper_004.prg_Din = prg_Din;
+	mapper_004.chr_A = chr_A;
+	mapper_004.chr_Din = chr_Din;
+	mapper_004.chr_ram_rdata = chr_ram_rdata;
+	mapper_004.n16kRomBanks = n16kRomBanks;
+	mapper_004.n8kVRomBanks = n8kVRomBanks;
+	mapper_004.fMirroringType = fMirroringType;
+	mapper_004.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map005
-		mapper_005.prg_rom_rdata = prg_rom_rdata;
-		mapper_005.ROM_SELn = ROM_SELn;
-		mapper_005.prg_A = prg_A;
-		mapper_005.prg_Din = prg_Din;
-		mapper_005.chr_A = chr_A;
-		mapper_005.chr_Din = chr_Din;
-		mapper_005.chr_ram_rdata = chr_ram_rdata;
-		mapper_005.n16kRomBanks = n16kRomBanks;
-		mapper_005.n8kVRomBanks = n8kVRomBanks;
-		mapper_005.fMirroringType = fMirroringType;
-		mapper_005.exram_rdata = ext_ram_dout;
+	mapper_005.prg_rom_rdata = prg_rom_rdata;
+	mapper_005.ROM_SELn = ROM_SELn;
+	mapper_005.prg_A = prg_A;
+	mapper_005.prg_Din = prg_Din;
+	mapper_005.chr_A = chr_A;
+	mapper_005.chr_Din = chr_Din;
+	mapper_005.chr_ram_rdata = chr_ram_rdata;
+	mapper_005.n16kRomBanks = n16kRomBanks;
+	mapper_005.n8kVRomBanks = n8kVRomBanks;
+	mapper_005.fMirroringType = fMirroringType;
+	mapper_005.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map010
-		mapper_010.prg_rom_rdata = prg_rom_rdata;
-		mapper_010.ROM_SELn = ROM_SELn;
-		mapper_010.prg_A = prg_A;
-		mapper_010.prg_Din = prg_Din;
-		mapper_010.chr_A = chr_A;
-		mapper_010.chr_ram_rdata = chr_ram_rdata;
-		mapper_010.n16kRomBanks = n16kRomBanks;
-		mapper_010.fMirroringType = fMirroringType;
-		mapper_010.exram_rdata = ext_ram_dout;
+	mapper_010.prg_rom_rdata = prg_rom_rdata;
+	mapper_010.ROM_SELn = ROM_SELn;
+	mapper_010.prg_A = prg_A;
+	mapper_010.prg_Din = prg_Din;
+	mapper_010.chr_A = chr_A;
+	mapper_010.chr_ram_rdata = chr_ram_rdata;
+	mapper_010.n16kRomBanks = n16kRomBanks;
+	mapper_010.fMirroringType = fMirroringType;
+	mapper_010.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map016
-		mapper_016.prg_rom_rdata = prg_rom_rdata;
-		mapper_016.ROM_SELn = ROM_SELn;
-		mapper_016.prg_A = prg_A;
-		mapper_016.prg_Din = prg_Din;
-		mapper_016.chr_A = chr_A;
-		mapper_016.chr_ram_rdata = chr_ram_rdata;
-		mapper_016.n16kRomBanks = n16kRomBanks;
-//		mapper_016.fMirroringType = fMirroringType;
-		mapper_016.exram_rdata = ext_ram_dout;
+	mapper_016.prg_rom_rdata = prg_rom_rdata;
+	mapper_016.ROM_SELn = ROM_SELn;
+	mapper_016.prg_A = prg_A;
+	mapper_016.prg_Din = prg_Din;
+	mapper_016.chr_A = chr_A;
+	mapper_016.chr_ram_rdata = chr_ram_rdata;
+	mapper_016.n16kRomBanks = n16kRomBanks;
+//	mapper_016.fMirroringType = fMirroringType;
+	mapper_016.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map019
-		mapper_019.prg_rom_rdata = prg_rom_rdata;
-		mapper_019.ROM_SELn = ROM_SELn;
-		mapper_019.prg_A = prg_A;
-		mapper_019.prg_Din = prg_Din;
-		mapper_019.chr_A = chr_A;
-		mapper_019.chr_Din = chr_Din;
-		mapper_019.chr_ram_rdata = chr_ram_rdata;
-		mapper_019.n16kRomBanks = n16kRomBanks;
-		mapper_019.n8kVRomBanks = n8kVRomBanks;
-		mapper_019.fMirroringType = fMirroringType;
-		mapper_019.exram_rdata = ext_ram_dout;
-		instruct mapper_019.exrom_ack prg_ack();
+	mapper_019.prg_rom_rdata = prg_rom_rdata;
+	mapper_019.ROM_SELn = ROM_SELn;
+	mapper_019.prg_A = prg_A;
+	mapper_019.prg_Din = prg_Din;
+	mapper_019.chr_A = chr_A;
+	mapper_019.chr_Din = chr_Din;
+	mapper_019.chr_ram_rdata = chr_ram_rdata;
+	mapper_019.n16kRomBanks = n16kRomBanks;
+	mapper_019.n8kVRomBanks = n8kVRomBanks;
+	mapper_019.fMirroringType = fMirroringType;
+	mapper_019.exram_rdata = ext_ram_dout;
+	instruct mapper_019.exrom_ack prg_ack();
 #endif
 #ifdef Map023
-		mapper_023.prg_rom_rdata = prg_rom_rdata;
-		mapper_023.ROM_SELn = ROM_SELn;
-		mapper_023.prg_A = prg_A;
-		mapper_023.prg_Din = prg_Din;
-		mapper_023.chr_A = chr_A;
-		mapper_023.chr_ram_rdata = chr_ram_rdata;
-		mapper_023.fMirroringType = fMirroringType;
-		mapper_023.exram_rdata = ext_ram_dout;
+	mapper_023.prg_rom_rdata = prg_rom_rdata;
+	mapper_023.ROM_SELn = ROM_SELn;
+	mapper_023.prg_A = prg_A;
+	mapper_023.prg_Din = prg_Din;
+	mapper_023.chr_A = chr_A;
+	mapper_023.chr_ram_rdata = chr_ram_rdata;
+	mapper_023.fMirroringType = fMirroringType;
+	mapper_023.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map025
-		mapper_025.prg_rom_rdata = prg_rom_rdata;
-		mapper_025.ROM_SELn = ROM_SELn;
-		mapper_025.prg_A = prg_A;
-		mapper_025.prg_Din = prg_Din;
-		mapper_025.chr_A = chr_A;
-		mapper_025.chr_ram_rdata = chr_ram_rdata;
-		mapper_025.n16kRomBanks = n16kRomBanks;
-		mapper_025.fMirroringType = fMirroringType;
-		mapper_025.exram_rdata = ext_ram_dout;
+	mapper_025.prg_rom_rdata = prg_rom_rdata;
+	mapper_025.ROM_SELn = ROM_SELn;
+	mapper_025.prg_A = prg_A;
+	mapper_025.prg_Din = prg_Din;
+	mapper_025.chr_A = chr_A;
+	mapper_025.chr_ram_rdata = chr_ram_rdata;
+	mapper_025.n16kRomBanks = n16kRomBanks;
+	mapper_025.fMirroringType = fMirroringType;
+	mapper_025.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map069
-		mapper_069.prg_rom_rdata = prg_rom_rdata;
-		mapper_069.ROM_SELn = ROM_SELn;
-		mapper_069.prg_A = prg_A;
-		mapper_069.prg_Din = prg_Din;
-		mapper_069.chr_A = chr_A;
-		mapper_069.chr_ram_rdata = chr_ram_rdata;
-		mapper_069.n16kRomBanks = n16kRomBanks;
-		mapper_069.fMirroringType = fMirroringType;
+	mapper_069.prg_rom_rdata = prg_rom_rdata;
+	mapper_069.ROM_SELn = ROM_SELn;
+	mapper_069.prg_A = prg_A;
+	mapper_069.prg_Din = prg_Din;
+	mapper_069.chr_A = chr_A;
+	mapper_069.chr_ram_rdata = chr_ram_rdata;
+	mapper_069.n16kRomBanks = n16kRomBanks;
+	mapper_069.fMirroringType = fMirroringType;
 #endif
 #ifdef Map073
-		mapper_073.prg_rom_rdata = prg_rom_rdata;
-		mapper_073.ROM_SELn = ROM_SELn;
-		mapper_073.prg_A = prg_A;
-		mapper_073.prg_Din = prg_Din;
-		mapper_073.chr_A = chr_A;
-		mapper_073.chr_Din = chr_Din;
-		mapper_073.chr_ram_rdata = chr_ram_rdata;
-		mapper_073.fMirroringType = fMirroringType;
-		mapper_073.exram_rdata = ext_ram_dout;
+	mapper_073.prg_rom_rdata = prg_rom_rdata;
+	mapper_073.ROM_SELn = ROM_SELn;
+	mapper_073.prg_A = prg_A;
+	mapper_073.prg_Din = prg_Din;
+	mapper_073.chr_A = chr_A;
+	mapper_073.chr_Din = chr_Din;
+	mapper_073.chr_ram_rdata = chr_ram_rdata;
+	mapper_073.fMirroringType = fMirroringType;
+	mapper_073.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map080
-		mapper_080.prg_rom_rdata = prg_rom_rdata;
-		mapper_080.ROM_SELn = ROM_SELn;
-		mapper_080.prg_A = prg_A;
-		mapper_080.prg_Din = prg_Din;
-		mapper_080.chr_A = chr_A;
-		mapper_080.chr_ram_rdata = chr_ram_rdata;
-		mapper_080.n16kRomBanks = n16kRomBanks;
-		mapper_080.fMirroringType = fMirroringType;
-		mapper_080.exram_rdata = ext_ram_dout;
+	mapper_080.prg_rom_rdata = prg_rom_rdata;
+	mapper_080.ROM_SELn = ROM_SELn;
+	mapper_080.prg_A = prg_A;
+	mapper_080.prg_Din = prg_Din;
+	mapper_080.chr_A = chr_A;
+	mapper_080.chr_ram_rdata = chr_ram_rdata;
+	mapper_080.n16kRomBanks = n16kRomBanks;
+	mapper_080.fMirroringType = fMirroringType;
+	mapper_080.exram_rdata = ext_ram_dout;
 #endif
 #ifdef Map089
-		mapper_089.prg_rom_rdata = prg_rom_rdata;
-		mapper_089.ROM_SELn = ROM_SELn;
-		mapper_089.prg_A = prg_A;
-		mapper_089.prg_Din = prg_Din;
-		mapper_089.chr_A = chr_A;
-		mapper_089.chr_ram_rdata = chr_ram_rdata;
-		mapper_089.fMirroringType = fMirroringType;
+	mapper_089.prg_rom_rdata = prg_rom_rdata;
+	mapper_089.ROM_SELn = ROM_SELn;
+	mapper_089.prg_A = prg_A;
+	mapper_089.prg_Din = prg_Din;
+	mapper_089.chr_A = chr_A;
+	mapper_089.chr_ram_rdata = chr_ram_rdata;
+	mapper_089.fMirroringType = fMirroringType;
 #endif
 #ifdef Map118
-		mapper_118.prg_rom_rdata = prg_rom_rdata;
-		mapper_118.ROM_SELn = ROM_SELn;
-		mapper_118.prg_A = prg_A;
-		mapper_118.prg_Din = prg_Din;
-		mapper_118.chr_A = chr_A;
-//		mapper_004.chr_Din = chr_Din;
-		mapper_118.chr_ram_rdata = chr_ram_rdata;
-		mapper_118.n16kRomBanks = n16kRomBanks;
-//		mapper_004.n8kVRomBanks = n8kVRomBanks;
-		mapper_118.fMirroringType = fMirroringType;
-		mapper_118.exram_rdata = ext_ram_dout;
+	mapper_118.prg_rom_rdata = prg_rom_rdata;
+	mapper_118.ROM_SELn = ROM_SELn;
+	mapper_118.prg_A = prg_A;
+	mapper_118.prg_Din = prg_Din;
+	mapper_118.chr_A = chr_A;
+//	mapper_004.chr_Din = chr_Din;
+	mapper_118.chr_ram_rdata = chr_ram_rdata;
+	mapper_118.n16kRomBanks = n16kRomBanks;
+//	mapper_004.n8kVRomBanks = n8kVRomBanks;
+	mapper_118.fMirroringType = fMirroringType;
+	mapper_118.exram_rdata = ext_ram_dout;
 #endif
 
-		switch(mapper_id){
+	switch(mapper_id){
 		case 0: par{
 			prg_Dout = mapper_000.prg_Dout;
 			chr_Dout = mapper_000.chr_Dout;
@@ -601,13 +606,12 @@ dbg = mapper_nsf.dbg;
 			VRAM_CSn = mapper_118.VRAM_CSn;
 			VRAM_A10 = mapper_118.VRAM_A10;
 		}
-		}
+	}
 
-		f_nsf = mapper_id==0x0C;
-		f_nes = ^f_nsf;
+	f_nsf = mapper_id==0x0C;
+	f_nes = ^f_nsf;
 
 //dbg = mapper_nsf.dbg;
-	}
 
 	instruct ready par{
 		mapper_nsf.ready();
@@ -637,76 +641,75 @@ dbg = mapper_nsf.dbg;
 
 	instruct prg_read par{
 		switch(mapper_id){
-			case   0: mapper_000.prg_read();
-			case   1: mapper_001.prg_read();
-			case   2: mapper_002.prg_read();
-			case   3: mapper_003.prg_read();
-			case   4: mapper_004.prg_read();
-			case   5: mapper_005.prg_read();
-			case  10: mapper_010.prg_read();
-			case  12: mapper_nsf.prg_read();
-			case  16: mapper_016.prg_read();
-			case  19: mapper_019.prg_read();
-			case  23: mapper_023.prg_read();
-			case  25: mapper_025.prg_read();
-			case  69: mapper_069.prg_read();
-			case  73: mapper_073.prg_read();
-			case  80: mapper_080.prg_read();
-			case  89: mapper_089.prg_read();
-			case 118: mapper_118.prg_read();
+			case   0: if(mapper_enable<  0>) mapper_000.prg_read();
+			case   1: if(mapper_enable<  1>) mapper_001.prg_read();
+			case   2: if(mapper_enable<  2>) mapper_002.prg_read();
+			case   3: if(mapper_enable<  3>) mapper_003.prg_read();
+			case   4: if(mapper_enable<  4>) mapper_004.prg_read();
+			case   5: if(mapper_enable<  5>) mapper_005.prg_read();
+			case  10: if(mapper_enable< 10>) mapper_010.prg_read();
+			case  12: if(mapper_enable< 12>) mapper_nsf.prg_read();
+			case  16: if(mapper_enable< 16>) mapper_016.prg_read();
+			case  19: if(mapper_enable< 19>) mapper_019.prg_read();
+			case  23: if(mapper_enable< 23>) mapper_023.prg_read();
+			case  25: if(mapper_enable< 25>) mapper_025.prg_read();
+			case  69: if(mapper_enable< 69>) mapper_069.prg_read();
+			case  73: if(mapper_enable< 73>) mapper_073.prg_read();
+			case  80: if(mapper_enable< 80>) mapper_080.prg_read();
+			case  89: if(mapper_enable< 89>) mapper_089.prg_read();
+			case 118: if(mapper_enable<118>) mapper_118.prg_read();
 		}
 	}
 
 	instruct prg_write par{
 		switch(mapper_id){
-			case   0: mapper_000.prg_write();
-			case   1: mapper_001.prg_write();
-			case   2: mapper_002.prg_write();
-			case   3: mapper_003.prg_write();
-			case   4: mapper_004.prg_write();
-			case   5: mapper_005.prg_write();
-			case  10: mapper_010.prg_write();
-			case  12: mapper_nsf.prg_write();
-			case  16: mapper_016.prg_write();
-			case  19: mapper_019.prg_write();
-			case  23: mapper_023.prg_write();
-			case  25: mapper_025.prg_write();
-			case  69: mapper_069.prg_write();
-			case  73: mapper_073.prg_write();
-			case  80: mapper_080.prg_write();
-			case  89: mapper_089.prg_write();
-			case 118: mapper_118.prg_write();
+			case   1: if(mapper_enable<  1>) mapper_001.prg_write();
+			case   2: if(mapper_enable<  2>) mapper_002.prg_write();
+			case   3: if(mapper_enable<  3>) mapper_003.prg_write();
+			case   4: if(mapper_enable<  4>) mapper_004.prg_write();
+			case   5: if(mapper_enable<  5>) mapper_005.prg_write();
+			case  10: if(mapper_enable< 10>) mapper_010.prg_write();
+			case  12: if(mapper_enable< 12>) mapper_nsf.prg_write();
+			case  16: if(mapper_enable< 16>) mapper_016.prg_write();
+			case  19: if(mapper_enable< 19>) mapper_019.prg_write();
+			case  23: if(mapper_enable< 23>) mapper_023.prg_write();
+			case  25: if(mapper_enable< 25>) mapper_025.prg_write();
+			case  69: if(mapper_enable< 69>) mapper_069.prg_write();
+			case  73: if(mapper_enable< 73>) mapper_073.prg_write();
+			case  80: if(mapper_enable< 80>) mapper_080.prg_write();
+			case  89: if(mapper_enable< 89>) mapper_089.prg_write();
+			case 118: if(mapper_enable<118>) mapper_118.prg_write();
 		}
 	}
 
 	instruct chr_read par{
 		switch(mapper_id){
-			case   0: mapper_000.chr_read();
-			case   1: mapper_001.chr_read();
-			case   2: mapper_002.chr_read();
-			case   3: mapper_003.chr_read();
-			case   4: mapper_004.chr_read();
-			case   5: mapper_005.chr_read();
-			case  10: mapper_010.chr_read();
-			case  16: mapper_016.chr_read();
-			case  19: mapper_019.chr_read();
-			case  23: mapper_023.chr_read();
-			case  25: mapper_025.chr_read();
-			case  69: mapper_069.chr_read();
-			case  73: mapper_073.chr_read();
-			case  80: mapper_080.chr_read();
-			case  89: mapper_089.chr_read();
-			case 118: mapper_118.chr_read();
+			case   0: if(mapper_enable<  0>) mapper_000.chr_read();
+			case   1: if(mapper_enable<  1>) mapper_001.chr_read();
+			case   2: if(mapper_enable<  2>) mapper_002.chr_read();
+			case   3: if(mapper_enable<  3>) mapper_003.chr_read();
+			case   4: if(mapper_enable<  4>) mapper_004.chr_read();
+			case   5: if(mapper_enable<  5>) mapper_005.chr_read();
+			case  10: if(mapper_enable< 10>) mapper_010.chr_read();
+			case  16: if(mapper_enable< 16>) mapper_016.chr_read();
+			case  19: if(mapper_enable< 19>) mapper_019.chr_read();
+			case  23: if(mapper_enable< 23>) mapper_023.chr_read();
+			case  25: if(mapper_enable< 25>) mapper_025.chr_read();
+			case  69: if(mapper_enable< 69>) mapper_069.chr_read();
+			case  73: if(mapper_enable< 73>) mapper_073.chr_read();
+			case  80: if(mapper_enable< 80>) mapper_080.chr_read();
+			case  89: if(mapper_enable< 89>) mapper_089.chr_read();
+			case 118: if(mapper_enable<118>) mapper_118.chr_read();
 		}
 	}
 
 	instruct chr_write par{
 		switch(mapper_id){
-			case   1: mapper_001.chr_write();
-			case   2: mapper_002.chr_write();
-			case   4: mapper_004.chr_write();
-			case  19: mapper_019.chr_write();
-			case  73: mapper_073.chr_write();
+			case   1: if(mapper_enable<  1>) mapper_001.chr_write();
+			case   2: if(mapper_enable<  2>) mapper_002.chr_write();
+			case   4: if(mapper_enable<  4>) mapper_004.chr_write();
+			case  19: if(mapper_enable< 19>) mapper_019.chr_write();
+			case  73: if(mapper_enable< 73>) mapper_073.chr_write();
 		}
 	}
 
@@ -728,13 +731,13 @@ dbg = mapper_nsf.dbg;
 
 	instruct hblank par{
 		switch(mapper_id){
-			case   4: mapper_004.hblank();
-			case  16: mapper_016.hblank();
-			case  19: mapper_019.hblank();
-			case  23: mapper_023.hblank();
-			case  25: mapper_025.hblank();
-			case  69: mapper_069.hblank();
-			case 118: mapper_118.hblank();
+			case   4: if(mapper_enable<  4>) mapper_004.hblank();
+			case  16: if(mapper_enable< 16>) mapper_016.hblank();
+			case  19: if(mapper_enable< 19>) mapper_019.hblank();
+			case  23: if(mapper_enable< 23>) mapper_023.hblank();
+			case  25: if(mapper_enable< 25>) mapper_025.hblank();
+			case  69: if(mapper_enable< 69>) mapper_069.hblank();
+			case 118: if(mapper_enable<118>) mapper_118.hblank();
 		}
 	}
 

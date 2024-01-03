@@ -1,0 +1,64 @@
+
+// RGB ROM & to VGA Flip Buffer
+
+%i "../mem/ram_16x256.h"
+%i "../mem/rgb_rom_5.h"
+
+circuit Display_5
+{
+	input din<6>;
+	output r_out<5>, g_out<5>, b_out<5>;
+	instrin write(din), read, bank_change;
+
+	rgb_rom_5 colrom;
+	ram_16x256 ram0, ram1;
+	reg_wr radrs<8>, wadrs<8>, bank;
+	reg_wr col_reg<16>, read_ack;
+	sel col<16>;
+
+	stage_name rgb_get { task do(); }
+
+	if(read_ack){
+		any{
+			bank==0b0 : col = ram0.dout;
+			bank==0b1 : col = ram1.dout;
+		}
+		col_reg := col;
+		read_ack := 0b0;
+	}
+	else col = col_reg;
+
+	r_out = col<14:10>;
+	g_out = col<9:5>;
+	b_out = col<4:0>;
+
+	instruct bank_change par{
+		bank := ^bank;
+	}
+
+	instruct read par{
+		any{
+			bank==0b0 : ram0.read(radrs);
+			bank==0b1 : ram1.read(radrs);
+		}
+		radrs++;
+		read_ack := 0b1;
+	}
+
+	instruct write par{
+		colrom.read(din);
+		generate rgb_get.do();
+	}
+
+	stage rgb_get {
+		par{
+			any{
+				bank==0b1 : ram0.write(wadrs, colrom.dout);
+				bank==0b0 : ram1.write(wadrs, colrom.dout);
+			}
+			wadrs++;
+			finish;
+		}
+	}
+
+}

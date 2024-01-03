@@ -70,6 +70,8 @@ circuit nes_core
 
 	// 実カートリッジ使用
 	input f_real_cartridge;
+	// 25MHz用
+	instrin f_25MHz;
 
 	reg_wr sp_flag;
 	reg_wr pre_nmi;
@@ -154,7 +156,8 @@ output dbg<16>;
 	prg_dout = mpu_dout_reg;
 	Phi2 = Phi2_reg;
 
-	PA = PA_reg;//ppu.PA;
+	if(^f_25MHz) PA = PA_reg;
+	if(f_25MHz) PA = ppu.PA;
 	WEn = WEn_reg;
 	RDn = RDn_reg;
 	chr_RW = chr_RW_reg;
@@ -163,7 +166,8 @@ output dbg<16>;
 		if(f_real_cartridge) ppu.PDin = chr_din_reg;
 		else ppu.PDin = chr_din;
 	}
-	chr_dout = ppu_PDout_reg;//ppu.PDout;
+	if(^f_25MHz) chr_dout = ppu_PDout_reg;
+	if(f_25MHz) chr_dout = ppu.PDout;
 
 	apu.f_stereo = f_stereo;
 	apu.dpcm_7bit = 0b1;
@@ -269,7 +273,15 @@ output dbg<16>;
 			generate vram_read_stg.do();
 			generate chr_read_stg.do(ppu.PA);
 		}
-		else generate chr_read_ack_wait.do(ppu.PA);
+		else{
+			if(f_25MHz){
+				if(VRAM_CSn==0b0){
+					vmem.read(VRAM_A10 || ppu.PA<9:0>);
+				}
+				else read_chr(); // for Mappers
+			}
+			generate chr_read_ack_wait.do(ppu.PA);
+		}
 //if(chr_read_stg.do) halt(0x12);
 //if(chr_write_stg.do) halt(0x13);
 	}
@@ -541,10 +553,12 @@ output dbg<16>;
 	stage chr_read_ack_wait {
 		first_state st1;
 		state st1 par{
-			if(VRAM_CSn==0b0){
-				vmem.read(VRAM_A10 || PA_reg<9:0>);
+			if(^f_25MHz){
+				if(VRAM_CSn==0b0){
+					vmem.read(VRAM_A10 || PA_reg<9:0>);
+				}
+				else read_chr(); // for Mappers
 			}
-			else read_chr(); // for Mappers
 			goto st2;
 		}
 		state st2 if((VRAM_CSn==0b0) | chr_ack | ready){

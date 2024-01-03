@@ -1,0 +1,127 @@
+
+circuit VGA_ctrl
+{
+	input ht_su<10>, ht_vu<10>, ht_nu<10>, ht_nd<10>, ht_vd<10>, ht_sd<10>;
+	input vt_su<10>, vt_vu<10>, vt_nu<10>, vt_nd<10>, vt_vd<10>, vt_sd<10>;
+	instrin run;
+	instrout nes_hsync;
+	instrout nes_vsync;
+	instrout dis;
+	output hsync, vsync, view_valid, win_valid;
+	output hcount<10>, vcount<10>;
+
+	reg_ws reset;
+	reg_wr vsync_count<10>;
+	reg_wr h_valid, v_valid;
+	reg_wr h_win_valid, v_win_valid;
+
+	stage_name hsync_cnt { task do(); }
+	stage_name vsync_cnt { task do(); }
+
+	par{
+		if(reset){
+			vsync_count := 509;
+			reset := 0b0;
+		}
+
+		view_valid = h_valid & v_valid;
+		win_valid = h_win_valid & v_win_valid;
+	}
+
+	instruct run par{
+		generate hsync_cnt.do();
+	}
+
+	reg_wr hcount_reg<10>, vcount_reg<10>;
+	hcount = hcount_reg;
+	vcount = vcount_reg;
+
+	// DE1 25 MHz
+	// SP2E 11 MHz
+	stage hsync_cnt {
+		reg_wr hsync_reg;
+		reg_wr hsync_count<10>;
+		reg_wr h_dis_run;
+		par{
+			hsync = hsync_reg;
+
+			finish;
+			any{
+				hsync_count==ht_su : par{
+					hsync_reg := 0b1;
+				}
+				hsync_count==ht_vu : par{
+					h_valid := 0b1;
+				}
+				hsync_count==ht_nu : par{
+					h_dis_run := 0b1;
+				}
+				hsync_count==ht_nd : par{
+					h_dis_run := 0b0;
+				}
+				hsync_count==ht_vd : par{
+					h_valid := 0b0;
+				}
+			}
+			h_win_valid := h_dis_run;
+
+			if(hsync_count==ht_sd){
+				hsync_reg := 0;
+				hsync_count := 0;
+				generate vsync_cnt.do();
+			}
+			else{
+				hsync_count++;
+			}
+
+			if(h_dis_run) dis();
+
+			if(hsync_count==ht_nu) hcount_reg := 0;
+			else hcount_reg++;
+		}
+	}
+
+	stage vsync_cnt {
+		reg_wr vsync_reg;
+		par{
+			vsync = vsync_reg;
+
+			finish;
+			any{
+				vsync_count==vt_su : par{
+					vsync_reg := 0b1;
+				}
+				vsync_count==vt_vu : par{
+					v_valid := 0b1;
+				}
+				vsync_count==vt_nu : par{
+					v_win_valid := 0b1;
+				}
+				vsync_count==vt_nd : par{
+					v_win_valid := 0b0;
+					nes_vsync();
+				}
+				vsync_count==vt_vd : par{
+					v_valid := 0b0;
+				}
+			}
+
+			if(vsync_count==vt_sd){
+				vsync_reg := 0;
+				vsync_count := 0;
+			//	nes_vsync();
+			}
+			else{
+				vsync_count++;
+			}
+
+			if(vsync_count<0>){
+				nes_hsync();
+			}
+
+			if(vsync_count==vt_nu) vcount_reg := 0;
+			else vcount_reg++;
+		}
+	}
+
+}

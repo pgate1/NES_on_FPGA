@@ -1,0 +1,26 @@
+
+// Delta Sigma Converter
+
+circuit dsdac16
+{
+	input din<16>;
+	output dout;
+
+	reg_wr din_reg<16>;
+	// 起動時のスパイクノイズ防止 0x100まで調整。
+	reg_wr spcount<8>;
+	if(spcount<7>){
+		din_reg := din;
+	}
+	else{
+		din_reg := 0b00000000||spcount;
+		spcount++;
+	}
+
+	reg_wr sigma<18>; // +2
+	sel delta<18>; // +2
+
+	delta = sigma<17> || sigma<17> || din_reg;
+	sigma += delta;
+	dout = sigma<17>;
+}

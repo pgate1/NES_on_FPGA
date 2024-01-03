@@ -9,8 +9,8 @@ circuit Mapper000
 {
 	// PRG-ROM
 	input ROM_SELn;
-	instrin prg_read, prg_write;
-	input prg_A<15>, prg_Din<8>;
+	instrin prg_read; //, prg_write;
+	input prg_A<15>; //, prg_Din<8>;
 	output prg_Dout<8>;
 	output IRQn;
 

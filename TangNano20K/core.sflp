@@ -1,0 +1,382 @@
+/*
+	NES on FPGA feat. TangNano20K
+	Copyright (c) 2023 pgate1
+*/
+
+%i "../../../TangNano20K/sdcard_ctrl.h"
+%i "../../../hdl/fat16.h"
+%i "../../../TangNano20K/sdram_ctrl.h"
+
+%i "../nes_core.h"
+%i "../mapper/Mapper.h"
+%i "display_5.h"
+%i "VGA_ctrl.h"
+%i "../../../hdl/dsdac7.h"
+%i "DDS_4995to5369318.h"
+%i "dsdac16.h"
+
+declare Mapper_enable interface { output enable<256>; }
+
+circuit core
+{
+	input BTN;
+	output LED<6>;
+//--------------------- SDRAM Interface --------------------
+	// 64Mbit、8MB、2M word 32bit
+	sdram_ctrl sdram;
+	output SDRAM_CSn, SDRAM_WEn, SDRAM_DEn;
+	output SDRAM_RASn, SDRAM_CASn;
+	output SDRAM_BA<2>, SDRAM_ADDR<11>;
+	output SDRAM_DQM<4>;
+	input  SDRAM_Din<32>;
+	output SDRAM_Dout<32>;
+//--------------------- SD_Card Interface ------------------
+	output SD_CSn; // SD Card CSn
+	output SD_CLK; // SD Card Clock
+	output SD_CMD; // SD Card Command & Dout
+	input  SD_DAT; // SD Card Data
+	sdcard_ctrl sdcard;
+	fat16 fat;
+//--------------------- VGA --------------------------------
+	output DVI_VS, DVI_HS, DVI_DE;
+	output DVI_R<8>, DVI_G<8>, DVI_B<8>;
+	VGA_ctrl vga;
+	Display_5 dis;
+//-------------------- SOUND -------------------------------
+	dsdac16 dac;
+//	output Sound;
+//------------------------------------------------------
+
+	reg_ws reset;
+
+	reg_wr prg_read_ok;
+
+	// NES
+	nes_core nes;
+	Mapper cart;
+	Mapper_enable mapper_enable;
+
+	reg_wr file_num<8>;
+
+	DDS_4995to5369318 dds_ntsc;
+
+	stage_name nes_line { task do(); }
+	stage_name key_seek { task next(); task back(); }
+	stage_name card2ram { task do(); }
+	stage_name prg_set_wait { task do(); }
+
+	if(reset){
+		generate card2ram.do();
+		reset := 0b0;
+	}
+
+	SDRAM_CSn = sdram.CSn;
+	SDRAM_RASn = sdram.RASn;
+	SDRAM_CASn = sdram.CASn;
+	SDRAM_WEn = sdram.WEn;
+	SDRAM_DEn = sdram.DEn;
+	SDRAM_BA = sdram.BA;
+	SDRAM_ADDR = sdram.A;
+	SDRAM_DQM = sdram.DQM;
+	SDRAM_Dout = sdram.Dout;
+	sdram.Din = SDRAM_Din;
+
+	SD_CSn = sdcard.CSn;
+	SD_CLK = sdcard.CLK;
+	SD_CMD = sdcard.CMD;
+	sdcard.DAT = SD_DAT;
+
+	fat.sack = sdcard.ack;
+	fat.sdata = sdcard.rdata;
+
+	vga.vt_su = 2;
+	vga.vt_vu = 2 + 33; // 35
+	vga.vt_nu = 2 + 33 + 16 -2; // 51 -2
+	vga.vt_nd = 2 + 33 + 16 + 448 -2; // 499 -2
+	vga.vt_vd = 2 + 33 + 480; // 515
+	vga.vt_sd = 525 - 1;
+	vga.ht_su = 96;
+	vga.ht_vu = 96 + 48;
+	vga.ht_nu = 96 + 48 + 64;
+	vga.ht_nd = 96 + 48 + 64 + 512;
+	vga.ht_vd = 96 + 48 + 640;
+	vga.ht_sd = 800 - 1;
+
+	DVI_HS = ^vga.hsync; // DVIの同期信号はLowアクティブ
+	DVI_VS = ^vga.vsync; // DVIの同期信号はLowアクティブ
+	DVI_DE = vga.view_valid;
+	if(vga.view_valid){
+		if(vga.win_valid){
+			if(cart.supported){
+				DVI_R = dis.r_out || 0b000;
+				DVI_G = dis.g_out || 0b000;
+				DVI_B = dis.b_out || 0b000;
+			}
+			else{
+				DVI_R = 0xFF;
+				DVI_G = 0x70;
+				DVI_B = 0x70;
+			}
+		}
+		else{
+			DVI_R = 0x07;
+			DVI_G = 0x07;
+			DVI_B = 0x07;
+		}
+	}
+	else{
+		DVI_R = 0x00;
+		DVI_G = 0x00;
+		DVI_B = 0x00;
+	}
+
+	nes.f_real_cartridge = 0b0;
+	nes.IRQn = cart.IRQn;
+	nes.VRAM_CSn = cart.VRAM_CSn;
+	nes.VRAM_A10 = cart.VRAM_A10;
+	if(^prg_read_ok) nes.ready();
+
+//	nes.speed = SW<2>;
+//	nes.stop  = 0b0;
+	nes.f_nsf = cart.f_nsf;
+	instruct cart.NMI_out nes.nsf_NMI();
+
+	cart.mapper_enable = mapper_enable.enable;
+
+	if(^prg_read_ok) cart.ready();
+	instruct nes.clk_out cart.Phi();
+/*
+	// for NSF
+	reg_wr cnt_1MHz<6>;
+	if(cnt_1MHz==27){
+		cart.tim1MHz();
+		cnt_1MHz := 1;
+	}
+	else cnt_1MHz++;
+*/
+	cart.fat_eof = fat.eof;
+
+//	cart.nes_sound_L = nes.sound_L;
+//	cart.nes_sound_R = nes.sound_R;
+
+//	nes.mute = 0b01111;
+	dac.din = nes.sound_L || 0b00000000;
+
+	LED = dac.dout || 0b0000 || prg_read_ok;
+
+	// NESPAD : 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
+	nes.pad1P = 0b0000 || BTN || 0b00 || BTN;
+	nes.pad2P = 0x00;
+
+	cart.ROM_SELn = nes.ROM_SELn;
+	cart.prg_A = nes.A;
+	instruct nes.read_prg cart.prg_read();
+	nes.prg_din = cart.prg_Dout;
+	instruct cart.prg_ack nes.prg_ack();
+
+	cart.prg_Din = nes.prg_dout;
+	instruct nes.write_prg cart.prg_write();
+
+	cart.chr_A = nes.PA;
+	instruct nes.read_chr par{
+		// romセット時にchr_rom読み込み防止
+		if(prg_read_ok) cart.chr_read();
+	}
+	nes.chr_din = cart.chr_Dout;
+	instruct cart.chr_ack nes.chr_ack();
+
+	cart.chr_Din = nes.chr_dout;
+	instruct nes.write_chr cart.chr_write();
+
+
+	// SDRAM1個でPRG-ROMとCHR-ROMを共有する
+	reg_wr prg_read_wait, prg_read_ack_wait;
+	reg_wr chr_read_wait, chr_read_ack_wait;
+	reg_wr chr_write_wait, chr_write_ack_wait;
+
+	// PRG-ROM readは、CHR-ROMアクセス発行と同時だったらこちら優先だが、
+	// すでにCHR-ROMアクセス時なら終了待ち、ack必要。
+	if( (
+		(cart.prg_rom_read & 
+			(^chr_read_wait) & (^chr_read_ack_wait) & (^chr_write_wait) & (^chr_write_ack_wait)
+		) | prg_read_wait
+		) & sdram.ack){
+		sdram.read(0b0||cart.prg_rom_adrs);
+		prg_read_wait := 0b0;
+		prg_read_ack_wait := 0b1;
+	}
+	else if(cart.prg_rom_read) prg_read_wait := 0b1;
+	if(prg_read_ack_wait & sdram.ack){
+		prg_read_ack_wait := 0b0;
+		cart.prg_rom_ack();
+	}
+	cart.prg_rom_rdata = sdram.dout<7:0>;
+
+	// PRG-ROM writeは、ROM読み込み時のみなので排他処理不要。
+	instruct cart.prg_rom_write par{
+		sdram.write(0b0||cart.prg_rom_adrs, 0x000000||cart.prg_rom_wdata, 0b0001);
+	}
+
+	// CHR-ROM readは、PRG-ROM readアクセス終了待ち、ack必要。
+	if( (cart.chr_ram_read | chr_read_wait) &
+		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
+		sdram.read(0b100||cart.chr_ram_adrs);
+		chr_read_wait := 0b0;
+		chr_read_ack_wait := 0b1;
+	}
+	else if(cart.chr_ram_read) chr_read_wait := 0b1;
+	if(chr_read_ack_wait & sdram.ack){
+		chr_read_ack_wait := 0b0;
+		cart.chr_ram_ack();
+	}
+	cart.chr_ram_rdata = sdram.dout<7:0>;
+
+	// CHR-RAM writeは、PRG-ROM readアクセス終了待ち、ack不要。
+	if( (cart.chr_ram_write | chr_write_wait) &
+		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
+		sdram.write(0b100||cart.chr_ram_adrs, 0x000000||cart.chr_ram_wdata, 0b0001);
+		chr_write_wait := 0b0;
+		chr_write_ack_wait := 0b1;
+	}
+	else if(cart.chr_ram_write) chr_write_wait := 0b1;
+	if(chr_write_ack_wait & sdram.ack){
+		chr_write_ack_wait := 0b0;
+	}
+
+
+	instruct nes.NES_VIDEO_enable par{
+		dis.write(nes.video);
+	}
+
+	// 49.95MHz → 24.975 MHz
+	reg_wr clock25M_div;
+	clock25M_div := ^clock25M_div;
+	if(clock25M_div) vga.run();
+
+	instruct vga.dis par{
+		reg_wr dis_timing;
+		if(dis_timing==0b0) dis.read();
+		dis_timing := ^dis_timing;
+	}
+
+	instruct vga.nes_hsync par{
+		dis.bank_change();
+		generate nes_line.do();
+	}
+
+	instruct dds_ntsc.run par{ // 5.369318MHz
+		if(prg_read_ok){
+			nes.run();
+		}
+	}
+
+	instruct nes.clk_out par{
+		cart.clock1789k();
+	}
+
+	instruct fat.sread par{
+		sdcard.read(fat.sadrs);
+	}
+
+	stage nes_line {
+		reg_wr pixel_count<9>;
+		par{
+			if(dds_ntsc.run){
+
+				nes.draw();
+
+				if(pixel_count==341){
+					nes.hblank();
+					pixel_count := 1;
+					finish;
+				}
+				else pixel_count++;
+
+				if(pixel_count==260){ // 256 + 8 ?
+					cart.hblank();
+				}
+			}
+		}
+	}
+
+/*
+	stage key_seek {
+		first_state iwait;
+		state iwait par{
+			prg_read_ok := 0b0;
+			goto st1;
+		}
+		state st1 par{
+			any{
+				key_seek.next : file_num++;
+				key_seek.back : file_num--;
+			}
+			generate card2ram.do();
+			goto st2;
+		}
+		state st2 if(^card2ram.do){
+			if((key_seek.next & (^btn_2))
+			 | (key_seek.back & (^btn_1))){
+				goto iwait;
+				finish;
+			}
+		}
+	}
+*/
+	stage card2ram {
+		first_state rbegin;
+		state rbegin if(fat.ack){
+			prg_read_ok := 0b0;
+			fat.fopen(file_num);
+			goto fatr;
+		}
+		state fatr if(fat.ack){
+			fat.read();
+			goto head;
+		}
+		state head if(fat.ack){
+			cart.set_head(fat.fdata);
+			fat.read();
+			if(cart.head_err){
+				any{
+					key_seek.next : file_num++;
+					key_seek.back : file_num--;
+					else : file_num++;
+				}
+				goto rbegin;
+			}
+			if(cart.head_ok) goto reopen;
+		}
+		state reopen if(fat.ack){
+			nes.mem_clear();
+			fat.fopen(file_num);
+			goto maps;
+		}
+		state maps if(fat.ack & cart.ack & sdram.ack){
+			//if(^fat.eof)
+			 fat.read();
+			cart.attach(fat.fdata);
+			if(cart.set_ok) goto rend;
+		}
+		state rend if(sdram.ack){
+			nes.soft_reset();
+			cart.soft_reset();
+			prg_read_ok := 0b1;
+		//	generate prg_set_wait.do();
+			goto rbegin;
+			finish;
+		}
+	}
+
+	stage prg_set_wait {
+		reg_wr pwait<4>;
+		par{
+			pwait++;
+			if(/&pwait){
+				prg_read_ok := 0b1;
+				finish;
+			}
+		}
+	}
+
+}
