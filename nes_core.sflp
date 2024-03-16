@@ -467,7 +467,7 @@ output dbg<16>;
 	}
 
 //	DMA中にAPUのDMC読み込みの可能性があるためread_waitが必要。
-//	DMAは524サイクル必要。
+//	DMAは513サイクル必要。
 	stage dma_run {
 		first_state st_pre;
 		finish;

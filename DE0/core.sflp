@@ -10,9 +10,9 @@
 
 %i "../../../DE0/chatmask.h"
 %i "../../../DE0/seg7_ctrl.h"
-%i "../../../DE0/sdram_ctrl.h"
-%i "../../../DE0/sdcard_ctrl.h"
-%i "../../../hdl/fat16.h"
+%i "../../../DE0/sdram8_ctrl.h"
+%i "../../../DE0/SDHCcard_ctrl_SPImode.h"
+%i "../../../DE0/FAT32.h"
 %i "../../../DE0/lcd_ctrl.h"
 %i "../../../DE0/keyboard_ctrl.h"
 %i "../../../DE0/vjtag_uart.h"
@@ -27,6 +27,8 @@
 %i "dsdac16.h"
 %i "segtim.h"
 %i "wave_effect.h"
+
+declare Mapper_enable interface { output enable<256>; }
 
 #define VRC7
 
@@ -47,18 +49,18 @@ circuit core
 	output SDRAM_LDQM, SDRAM_UDQM;
 	input  SDRAM_Din<16>;
 	output SDRAM_Dout<16>;
-	sdram_ctrl sdram;
+	sdram8_ctrl sdram;
 //--------------------- SD_Card Interface ------------------
 	output SD_CSn; // SD Card CSn
 	output SD_CLK; // SD Card Clock
 	output SD_CMD; // SD Card Command & Dout
 	input  SD_DAT; // SD Card Data
-	sdcard_ctrl sdcard;
-	fat16 fat;
+	SDHCcard_ctrl_SPImode sdcard;
+	FAT32 fat;
 //--------------------- PS/2 -------------------------------
 	input PS2_KBCLK, PS2_KBDAT;
 	keyboard_ctrl kb;
-	mem keys[128];
+	mem keys[256]; // 127まで使用
 //--------------------- VGA --------------------------------
 	output VGA_HS, VGA_VS;
 	output VGA_R<4>, VGA_G<4>, VGA_B<4>;
@@ -83,6 +85,7 @@ circuit core
 	// NES
 	nes_core nes;
 	Mapper cart;
+	Mapper_enable mapper_enable;
 
 	reg_wr file_num<8>;
 
@@ -108,6 +111,7 @@ circuit core
 	stage_name key2btn { task do(); }
 	stage_name key_seek { task next(); task back(); }
 	stage_name card2ram { task do(); }
+	stage_name tas_stg { task do(); }
 	stage_name vjtag2ram { task do(); }
 	stage_name prg_set_wait { task do(); }
 	stage_name lcd_view { task do(); }
@@ -160,6 +164,7 @@ circuit core
 	SD_CMD = sdcard.CMD;
 	sdcard.DAT = SD_DAT;
 
+	instruct fat.sread sdcard.read(fat.sadrs);
 	fat.sack = sdcard.ack;
 	fat.sdata = sdcard.rdata;
 
@@ -225,6 +230,8 @@ circuit core
 	nes.f_nsf = cart.f_nsf;
 	instruct cart.NMI_out nes.nsf_NMI();
 
+	cart.mapper_enable = mapper_enable.enable;
+
 	if(^prg_read_ok) cart.ready();
 	instruct nes.clk_out cart.Phi();
 
@@ -266,11 +273,13 @@ circuit core
 	Sound_Left  = dac_L.DACout;
 	Sound_Right = dac_R.DACout;
 
+	reg_wr tas_key<8>;
 	// NESPAD : 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
 //	nes.pad1P = (btn_1 & ^btn_2) || 0b000 || (btn_2 & btn_1) || 0b00 || btn_2;
 	nes.pad1P =
 		((btn_1 || 0b000 || SW<0> || 0b00 || btn_2) & 8#(cart.f_nes & prg_read_ok)) |
-		(keys[0x74] || keys[0x6B] || keys[0x72] || keys[0x75] || keys[0x5A] || keys[0x29] || keys[0x1A] || keys[0x22]);
+		(keys[0x74] || keys[0x6B] || keys[0x72] || keys[0x75] || keys[0x5A] || keys[0x29] || keys[0x1A] || keys[0x22]) |
+		tas_key;
 	nes.pad2P = 0x00;
 
 	LEDG = (0b00 || nes.pad1P) |
@@ -327,7 +336,7 @@ circuit core
 			(^chr_read_wait) & (^chr_read_ack_wait) & (^chr_write_wait) & (^chr_write_ack_wait)
 		) | prg_read_wait
 		) & sdram.ack){
-		sdram.read(0b00||cart.prg_rom_adrs);
+		sdram.read(0b000||cart.prg_rom_adrs);
 		prg_read_wait := 0b0;
 		prg_read_ack_wait := 0b1;
 	}
@@ -336,17 +345,17 @@ circuit core
 		prg_read_ack_wait := 0b0;
 		cart.prg_rom_ack();
 	}
-	cart.prg_rom_rdata = sdram.rdata<7:0>;
+	cart.prg_rom_rdata = sdram.dout;
 
 	// PRG-ROM writeは、ROM読み込み時のみなので排他処理不要。
 	instruct cart.prg_rom_write par{
-		sdram.write(0b00||cart.prg_rom_adrs, 0x00||cart.prg_rom_wdata);
+		sdram.write(0b000||cart.prg_rom_adrs, cart.prg_rom_wdata);
 	}
 
 	// CHR-ROM readは、PRG-ROM readアクセス終了待ち、ack必要。
 	if( (cart.chr_ram_read | chr_read_wait) &
 		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
-		sdram.read(0b0100||cart.chr_ram_adrs);
+		sdram.read(0b00100||cart.chr_ram_adrs);
 		chr_read_wait := 0b0;
 		chr_read_ack_wait := 0b1;
 	}
@@ -355,12 +364,12 @@ circuit core
 		chr_read_ack_wait := 0b0;
 		cart.chr_ram_ack();
 	}
-	cart.chr_ram_rdata = sdram.rdata<7:0>;
+	cart.chr_ram_rdata = sdram.dout;
 
 	// CHR-RAM writeは、PRG-ROM readアクセス終了待ち、ack不要。
 	if( (cart.chr_ram_write | chr_write_wait) &
 		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
-		sdram.write(0b0100||cart.chr_ram_adrs, 0x00||cart.chr_ram_wdata);
+		sdram.write(0b00100||cart.chr_ram_adrs, cart.chr_ram_wdata);
 		chr_write_wait := 0b0;
 		chr_write_ack_wait := 0b1;
 	}
@@ -436,9 +445,6 @@ circuit core
 		}
 	}
 */
-	instruct fat.sread par{
-		sdcard.read(fat.sadrs);
-	}
 
 	instruct vjtag.recv par{
 		generate vjtag2ram.do();
@@ -565,8 +571,76 @@ circuit core
 			cart.soft_reset();
 			prg_read_ok := 0b1;
 		//	generate prg_set_wait.do();
+			generate tas_stg.do();
 			goto rbegin;
 			finish;
+		}
+	}
+
+	stage tas_stg {
+		reg_wr tas_file_type<3>;
+		mem tas_buf[32];
+		first_state st_open;
+		state st_open if(fat.ack){
+			fat.fopen(file_num + 1);
+			goto st_type;
+		}
+		state st_type if(fat.ack){
+			fat.read();
+			if(fat.fdata=='['){ // bk2
+				tas_file_type := 3;
+				goto st_head;
+			}
+			if(fat.fdata=='v'){ // fm2
+				tas_file_type := 4;
+				goto st_head;
+			}
+		}
+		state st_head if(fat.ack){
+			fat.read();
+			if(fat.fdata==0x0A){ // \n
+				reg_wr lf_count<4>;
+				if((tas_file_type==3) & (lf_count== 1)) goto st_input;
+				if((tas_file_type==4) & (lf_count==13)) goto st_input;
+				lf_count++;
+			}
+		}
+		state st_input if(fat.ack){
+			reg_wr buf_i<5>;
+			tas_buf[buf_i] := fat.fdata!='.';
+			fat.read();
+			if(fat.fdata==0x0A){ // \n
+				buf_i := 0;
+				goto st_key;
+			}
+			else buf_i++;
+			if(fat.eof) finish; // TAS end
+		}
+		state st_key if(vga.nes_vsync){
+			// Pad 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
+			if(tas_file_type==3){
+				tas_key :=
+					tas_buf[ 7] || // Right
+					tas_buf[ 6] || // Left
+					tas_buf[ 5] || // Down
+					tas_buf[ 4] || // Up
+					tas_buf[ 8] || // Start
+					tas_buf[ 9] || // Select
+					tas_buf[10] || // B
+					tas_buf[11];   // A
+			}
+			if(tas_file_type==4){
+				tas_key :=
+					tas_buf[ 3] || // Right
+					tas_buf[ 4] || // Left
+					tas_buf[ 5] || // Down
+					tas_buf[ 6] || // Up
+					tas_buf[ 7] || // Start
+					tas_buf[ 8] || // Select
+					tas_buf[ 9] || // B
+					tas_buf[10];   // A
+			}
+			goto st_input;
 		}
 	}
 
