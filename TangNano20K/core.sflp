@@ -196,11 +196,8 @@ circuit core
 
 	// PRG-ROM readは、CHR-ROMアクセス発行と同時だったらこちら優先だが、
 	// すでにCHR-ROMアクセス時なら終了待ち、ack必要。
-	if( (
-		(cart.prg_rom_read & 
-			(^chr_read_wait) & (^chr_read_ack_wait) & (^chr_write_wait) & (^chr_write_ack_wait)
-		) | prg_read_wait
-		) & sdram.ack){
+	if( (cart.prg_rom_read | prg_read_wait) &
+		^chr_read_ack_wait & ^chr_write_ack_wait & sdram.ack){
 		sdram.read(0b0||cart.prg_rom_adrs);
 		prg_read_wait := 0b0;
 		prg_read_ack_wait := 0b1;
@@ -219,7 +216,7 @@ circuit core
 
 	// CHR-ROM readは、PRG-ROM readアクセス終了待ち、ack必要。
 	if( (cart.chr_ram_read | chr_read_wait) &
-		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
+		^cart.prg_rom_read & ^prg_read_ack_wait & sdram.ack){
 		sdram.read(0b100||cart.chr_ram_adrs);
 		chr_read_wait := 0b0;
 		chr_read_ack_wait := 0b1;
@@ -233,7 +230,7 @@ circuit core
 
 	// CHR-RAM writeは、PRG-ROM readアクセス終了待ち、ack不要。
 	if( (cart.chr_ram_write | chr_write_wait) &
-		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
+		^cart.prg_rom_read & ^prg_read_ack_wait & sdram.ack){
 		sdram.write(0b100||cart.chr_ram_adrs, 0x000000||cart.chr_ram_wdata, 0b0001);
 		chr_write_wait := 0b0;
 		chr_write_ack_wait := 0b1;

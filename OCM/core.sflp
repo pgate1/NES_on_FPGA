@@ -45,12 +45,11 @@ circuit core
 //--------------------- PS/2 -------------------------------
 	input PS2_KBCLK, PS2_KBDAT;
 	keyboard_ctrl kb;
-	mem keys[128];
+	mem keys[256]; // 127まで使用
 //--------------------- VGA --------------------------------
 	output VGA_HS, VGA_VS;
 	output VGA_R<6>, VGA_G<6>, VGA_B<6>;
 	reg_wr red_out_reg<6>, grn_out_reg<6>, blu_out_reg<6>;
-	reg_wr clock25M_div;
 	VGA_ctrl vga;
 	Display_5 dis;
 	reg_ws dis_timing;
@@ -76,7 +75,6 @@ circuit core
 
 	stage_name nes_line { task do(); }
 	stage_name clock3580k { task do(); }
-	stage_name clock25M { task do(); }
 	stage_name key2btn { task do(); }
 	stage_name key_seek { task next(); task back(); }
 	stage_name card2ram { task do(); }
@@ -85,7 +83,6 @@ circuit core
 	if(reset){
 		reset := 0b0;
 		generate clock3580k.do();
-		generate clock25M.do();
 		generate card2ram.do();
 		file_num := 0;
 		generate key2btn.do();
@@ -276,11 +273,8 @@ circuit core
 
 	// PRG-ROM readは、CHR-ROMアクセス発行と同時だったらこちら優先だが、
 	// すでにCHR-ROMアクセス時なら終了待ち、ack必要。
-	if( (
-		(cart.prg_rom_read & 
-			(^chr_read_wait) & (^chr_read_ack_wait) & (^chr_write_wait) & (^chr_write_ack_wait)
-		) | prg_read_wait
-		) & sdram.ack){
+	if( (cart.prg_rom_read | prg_read_wait) & 
+		^chr_read_ack_wait & ^chr_write_ack_wait & sdram.ack){
 		sdram.read(0b0000||cart.prg_rom_adrs);
 		prg_read_wait := 0b0;
 		prg_read_ack_wait := 0b1;
@@ -299,7 +293,7 @@ circuit core
 
 	// CHR-ROM readは、PRG-ROM readアクセス終了待ち、ack必要。
 	if( (cart.chr_ram_read | chr_read_wait) &
-		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
+		^cart.prg_rom_read & ^prg_read_ack_wait & sdram.ack){
 		sdram.read(0b000100||cart.chr_ram_adrs);
 		chr_read_wait := 0b0;
 		chr_read_ack_wait := 0b1;
@@ -313,7 +307,7 @@ circuit core
 
 	// CHR-RAM writeは、PRG-ROM readアクセス終了待ち、ack不要。
 	if( (cart.chr_ram_write | chr_write_wait) &
-		(^cart.prg_rom_read) & (^prg_read_wait) & (^prg_read_ack_wait) & sdram.ack){
+		^cart.prg_rom_read & ^prg_read_ack_wait & sdram.ack){
 		sdram.write(0b000100||cart.chr_ram_adrs, 0x00||cart.chr_ram_wdata);
 		chr_write_wait := 0b0;
 		chr_write_ack_wait := 0b1;
@@ -326,6 +320,10 @@ circuit core
 	instruct nes.NES_VIDEO_enable par{
 		dis.write(nes.video);
 	}
+
+	reg_wr clock25M_div;
+	clock25M_div := ^clock25M_div;
+	if(clock25M_div /*& prg_read_ok*/) vga.run();
 
 	instruct vga.dis par{
 		if(dis_timing) dis.read();
@@ -383,14 +381,6 @@ circuit core
 					cart.hblank();
 				}
 			}
-		}
-	}
-
-	stage clock25M {
-		par{
-			clock25M_div := ^clock25M_div;
-			if(clock25M_div /*& prg_read_ok*/) vga.run();
-			if(0b0) finish; // 未使用
 		}
 	}
 
