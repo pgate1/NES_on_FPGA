@@ -1,5 +1,5 @@
 
-// APU Noize Channel
+// APU Noise Channel
 
 %i "envelope_generator.h"
 %i "timer_unit.h"
