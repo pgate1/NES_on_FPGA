@@ -2,18 +2,18 @@
 // RGB ROM & to VGA Flip Buffer
 
 %i "../mem/ram_16x256.h"
-%i "../mem/rgb_rom_4.h"
+%i "../mem/rgb_rom_3.h"
 
-circuit Display_4
+circuit Display_3
 {
 	input din<6>;
-	output r_out<4>, g_out<4>, b_out<4>;
+	output r_out<3>, g_out<3>, b_out<3>;
 	instrin write(din), read, bank_change;
 
-	rgb_rom_4 colrom;
+	rgb_rom_3 colrom;
 	ram_16x256 ram0, ram1;
 	reg_wr radrs<8>, wadrs<8>, bank;
-	reg col_reg<16>, read_ack;
+	reg_wr col_reg<16>, read_ack;
 	sel col<16>;
 
 	stage_name rgb_get { task do(); }
@@ -28,9 +28,9 @@ circuit Display_4
 	}
 	else col = col_reg;
 
-	r_out = col<11:8>;
-	g_out = col<7:4>;
-	b_out = col<3:0>;
+	r_out = col<8:6>;
+	g_out = col<5:3>;
+	b_out = col<2:0>;
 
 	instruct bank_change par{
 		bank := ^bank;

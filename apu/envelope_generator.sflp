@@ -9,7 +9,7 @@ circuit envelope_generator
 	instrin exc, set(ctrl), halt;
 
 	reg_wr f_loop, f_disable, f_halt;
-	reg_wr e_count<4>, reload<4>;	// wr‚¶‚á‚È‚­‚Æ‚à—Ç‚¢?
+	reg_wr e_count<4>, reload<4>;
 
 	if(f_disable) count = reload;
 	else          count = e_count;

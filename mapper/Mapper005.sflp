@@ -13,12 +13,12 @@ circuit Mapper005
 	instrin prg_read, prg_write;
 	input prg_A<15>, prg_Din<8>;
 	output prg_Dout<8>;
-	reg_wr prg_Dout_reg<8>;
+	reg prg_Dout_reg<8>;
 	output IRQn;
 
 	// CHR-ROM
-	instrin chr_read, chr_write;
-	input chr_A<14>, chr_Din<8>;
+	instrin chr_read;//, chr_write;
+	input chr_A<14>;//, chr_Din<8>;
 	output chr_Dout<8>;
 	output VRAM_CSn, VRAM_A10;
 
@@ -38,28 +38,28 @@ circuit Mapper005
 
 	instrout chr_ram_read(chr_ram_adrs);
 	output chr_ram_adrs<18>; // CHR_ROM max 256KB
-	output chr_ram_wdata<8>;
-	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+//	output chr_ram_wdata<8>;
+//	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
 	input chr_ram_rdata<8>;
 
 	instrin init;
 
 	input n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
-	reg_wr fMirroringType_reg;
+	reg fMirroringType_reg;
 
-	reg_wr prg_bank4<6>, prg_bank5<6>, prg_bank6<6>, prg_bank7<6>;
-	reg_wr chr_bank0<8>, chr_bank1<8>, chr_bank2<8>, chr_bank3<8>;
-	reg_wr chr_bank4<8>, chr_bank5<8>, chr_bank6<8>, chr_bank7<8>;
+	reg prg_bank4<6>, prg_bank5<6>, prg_bank6<6>, prg_bank7<6>;
+	reg chr_bank0<8>, chr_bank1<8>, chr_bank2<8>, chr_bank3<8>;
+	reg chr_bank4<8>, chr_bank5<8>, chr_bank6<8>, chr_bank7<8>;
 
 	instrself map_rom, map_exrom, map_exram;
 
 	reg_wr mmc5_prg_size<2>, mmc5_chr_size<2>;
-	reg_wr fSaveRAMenable;
+//	reg_wr fSaveRAMenable;
 	reg_ws IRQn_reg;
 
-	reg_wr pre_chr_A12;
+	reg pre_chr_A12;
 	instrself hblank;
-	reg_wr irq_enable, irq_status<8>, irq_scanline<8>, irq_line<8>, irq_clear;
+	reg irq_enable, irq_status<8>, irq_scanline<8>, irq_line<8>, irq_clear;
 
 	sel pA<16>;
 	sel chr_read_bank<8>;
@@ -229,12 +229,6 @@ circuit Mapper005
 
 		if(chr_A<12> & (pre_chr_A12==0b0)) hblank();
 		pre_chr_A12 := chr_A<12>;
-	}
-
-	instruct chr_write par{
-		if(chr_A<13>==0b0){
-		//	chr_ram_write(chr_read_bank || chr_A<9:0>, chr_Din);
-		}
 	}
 
 	instruct hblank par{

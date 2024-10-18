@@ -43,20 +43,20 @@ circuit Mapper069
 input dbg<8>;
 
 	input n16kRomBanks<6>, fMirroringType;
-	reg_wr fMirroringType_reg;
+	reg fMirroringType_reg;
 
-	reg_wr prg_bank3<5>, prg_bank4<5>, prg_bank5<5>, prg_bank6<5>, prg_last_bank<5>;
-	reg_wr chr_bank0<8>, chr_bank1<8>, chr_bank2<8>, chr_bank3<8>;
-	reg_wr chr_bank4<8>, chr_bank5<8>, chr_bank6<8>, chr_bank7<8>;
+	reg prg_bank3<5>, prg_bank4<5>, prg_bank5<5>, prg_bank6<5>, prg_last_bank<5>;
+	reg chr_bank0<8>, chr_bank1<8>, chr_bank2<8>, chr_bank3<8>;
+	reg chr_bank4<8>, chr_bank5<8>, chr_bank6<8>, chr_bank7<8>;
 
 	instrself map_rom, map_exram;
 
 	reg_ws IRQn_reg;
-	reg_wr command<4>;
+	reg command<4>;
 
 	sn5b_core sn5b;
 
-	reg_wr irq_counter_L<8>, irq_counter_H<8>, irq_enabled;
+	reg irq_counter_L<8>, irq_counter_H<8>, irq_enabled;
 
 	par{
 

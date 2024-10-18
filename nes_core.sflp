@@ -10,22 +10,22 @@ circuit nes_core
 {
 	// PRG-ROM EXT-ROM EXT-RAM
 	output A<15>, ROM_SELn, RW, prg_RW, Phi2;
-	reg_wr A_reg<16>, Phi2_reg;
+	reg A_reg<16>, Phi2_reg;
 	reg_ws RW_reg, prg_RW_reg;
 	input IRQn;
 	input prg_din<8>;
-	reg_wr prg_din_reg<8>;
+	reg prg_din_reg<8>;
 	output prg_dout<8>;
 	instrin prg_ack;
 
 	// CHR-ROM
 	output PA<14>, WEn, RDn, chr_RW;
-	reg_wr PA_reg<14>;
+	reg PA_reg<14>;
 	reg_ws WEn_reg, RDn_reg, chr_RW_reg;
 
 	input VRAM_CSn, VRAM_A10;
 	input chr_din<8>;
-	reg_wr chr_din_reg<8>;
+	reg chr_din_reg<8>;
 	output chr_dout<8>;
 	instrin chr_ack;
 
@@ -42,7 +42,7 @@ circuit nes_core
 
 	// VIDEO
 	output video<6>;
-	instrout NES_VIDEO_enable;
+	instrout VIDEO_enable;
 
 	input mute<5>, f_volume_boost<5>;
 	output sound_L<8>, sound_R<8>, volume_boost<8>;
@@ -56,17 +56,19 @@ circuit nes_core
 	instrout mem_cleaned;
 
 	reg_ws reset;
-	reg_wr mpu_timing<3>;
-	reg_wr io_reg<8>;
+	reg mpu_timing<3>;
+	reg io_reg<8>;
 	reg_wr pad1_data<8>, pad2_data<8>;
 	instrself map_wmem, map_ppu, map_nesrom, map_apu;
 
-	reg_wr mpu_dout_reg<8>, ppu_PDout_reg<8>;
-	reg_wr prg_count<5>, chr_count<4>;
+	reg mpu_dout_reg<8>, ppu_PDout_reg<8>;
+	reg prg_count<5>, chr_count<4>;
 
 	// DMA
-	reg_wr f_dma, dma_low<8>, dma_data<8>;
-	reg_wr f_apu_dmc, apu_dmc_adrs<16>;
+	reg_wr f_dma;
+	reg dma_low<8>, dma_data<8>;
+	reg_wr f_apu_dmc;
+	reg apu_dmc_adrs<16>;
 
 	// 実カートリッジ使用
 	input f_real_cartridge;
@@ -74,7 +76,7 @@ circuit nes_core
 	instrin f_25MHz;
 
 	reg_wr sp_flag;
-	reg_wr pre_nmi;
+	reg pre_nmi;
 
 	// NSF拡張
 	input f_nsf;
@@ -299,7 +301,7 @@ output dbg<16>;
 	// PPU 外部出力
 	instruct ppu.PPU_VIDEO_enable par{
 		video = ppu.VIDEO;
-		NES_VIDEO_enable();
+		VIDEO_enable();
 	}
 
 	instruct apu.dmc_read par{
@@ -649,7 +651,7 @@ output dbg<16>;
 	// 50MHz/1.789772.5 = 27.9 clk 558ns
 // 350ns(17.5clk)/559ns CPU cycles begin at the point where M2 goes low.
 	stage phi2_tim {
-		reg_wr phi_count<5>;
+		reg phi_count<5>;
 		first_state st1;
 		state st1 par{
 			Phi2_reg := 0b0;
@@ -680,13 +682,14 @@ output dbg<16>;
 	}
 
 	stage mem_clear_stg {
-		reg_wr init_wait<8>, mem_adrs<11>;
 		first_state stw;
 		state stw par{
+			reg_wr init_wait<8>;
 			init_wait++;
 			if(/&init_wait) goto st1;
 		}
 		state st1 par{
+			reg_wr mem_adrs<11>;
 			wmem.write(mem_adrs, 0x00);
 			vmem.write(mem_adrs, 0x00);
 			mem_adrs++;

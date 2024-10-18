@@ -12,7 +12,7 @@ circuit delay_unit
 	output dout<8>;
 	reg_wr dout_reg<8>;
 
-	reg_wr din_reg<8>;
+	reg din_reg<8>;
 	ram_8x512 d_ram;
 
 	stage_name delay_wr { task do(din_reg); }

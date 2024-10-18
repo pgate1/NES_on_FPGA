@@ -91,11 +91,11 @@ circuit core
 	sel sound_L_clip<14>, sound_R_clip<14>;
 	sel sound_L<14>, sound_R<14>;
 
-	reg_wr note_count<17>;
+	reg note_count<17>;
 	dsdac7 dac_sq1, dac_sq2, dac_tri, dac_noi, dac_dmc;
 	dsdac7 dac_mmc5, dac_n106, dac_fds, dac_vrc6, dac_sn5b, dac_vrc7;
-	reg_wr note_sq1<7>, note_sq2<7>, note_tri<7>, note_noi<7>, note_dmc<7>;
-	reg_wr note_mmc5<7>, note_n106<7>, note_fds<7>, note_vrc6<7>, note_sn5b<7>, note_vrc7<7>;
+	reg note_sq1<7>, note_sq2<7>, note_tri<7>, note_noi<7>, note_dmc<7>;
+	reg note_mmc5<7>, note_n106<7>, note_fds<7>, note_vrc6<7>, note_sn5b<7>, note_vrc7<7>;
 
 	segtim segtim_0, segtim_1, segtim_2, segtim_3;
 
@@ -373,7 +373,7 @@ circuit core
 	}
 
 
-	instruct nes.NES_VIDEO_enable par{
+	instruct nes.VIDEO_enable par{
 		dis.write(nes.video);
 	}
 
@@ -641,7 +641,7 @@ circuit core
 		state rbegin par{
 			prg_read_ok := 0b0;
 			nes.mem_clear();
-			cart.set_map(vjtag.recv_data); // Mapper ID
+			cart.set_type(vjtag.recv_data); // R(ROM),S(NSF),P(Pad)
 			goto maps;
 		}
 		state maps par{

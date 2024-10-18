@@ -1,11 +1,8 @@
-/*
- 24.975MHzから5369318Hzを生成する
- カウンタ 19bit、加算値 36291、最大値 168805、誤差 +0.0000592396
-*/
+// カウンタ 11bit、加算値 40、最大値 999、誤差 0.0000000000
 
-%d COUNT_WIDTH 19
+%d COUNT_WIDTH 11
 
-circuit DDS_24975to5369318
+circuit DDS_24975to1000
 {
 	instrout run;
 
@@ -14,8 +11,8 @@ circuit DDS_24975to5369318
 	reg_wr count<COUNT_WIDTH>;
 	sel sa<COUNT_WIDTH>;
 
-	add = 36291;
-	max = 168805;
+	add = 40;
+	max = 999;
 
 	sa = count - max;
 

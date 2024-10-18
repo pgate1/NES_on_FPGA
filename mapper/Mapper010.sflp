@@ -44,12 +44,12 @@ circuit Mapper010
 	instrin init;
 
 	input n16kRomBanks<6>, fMirroringType;
-	reg_wr fMirroringType_reg;
+	reg fMirroringType_reg;
 
-	reg_wr prg_bank<4>, prg_last_bank<4>;
-	reg_wr chr_bank0<5>, chr_bank1<5>;
-	reg_wr regs0<5>, regs1<5>, regs2<5>, regs3<5>;
-	reg_wr latch_a<4>, latch_b<4>;
+	reg prg_bank<4>, prg_last_bank<4>;
+	reg chr_bank0<5>, chr_bank1<5>;
+	reg regs0<5>, regs1<5>, regs2<5>, regs3<5>;
+	reg latch_a<4>, latch_b<4>;
 
 	instrself map_rom, map_exram;
 
@@ -174,12 +174,5 @@ circuit Mapper010
 			}
 		}
 	}
-/*
-	instruct chr_write par{
-		if(chr_A<13>==0b0){
-			chr_ram_write(0b00000 || chr_A<12:0>, chr_Din);
-		}
-	}
-*/
 
 }

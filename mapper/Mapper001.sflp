@@ -48,17 +48,17 @@ circuit Mapper001
 //output dbg;
 
 	input n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
-	reg_wr fMirroringType_reg;
+	reg fMirroringType_reg;
 
 	reg_wr set_adrs<2>, w_count<3>, w_bits<4>, set_bits<5>;
-	reg_wr regs0<5>, regs1<5>, regs2<5>, regs3<5>;
+	reg regs0<5>, regs1<5>, regs2<5>, regs3<5>;
 	reg_wr fHVmrroring;
 	reg_ws fPrgRomHLSwitch, fPrgRomSwitch;
 	reg_wr fChrRomSwitch;
 
-	reg_wr prg_bank0<4>, prg_bank1<4>, prg_last_bank<4>;
-	reg_wr prg_bank_base;
-	reg_wr chr_bank0<5>, chr_bank1<5>;
+	reg prg_bank0<4>, prg_bank1<4>, prg_last_bank<4>;
+	reg prg_bank_base;
+	reg chr_bank0<5>, chr_bank1<5>;
 
 	instrself map_rom, map_exram;
 

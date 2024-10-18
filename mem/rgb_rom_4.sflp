@@ -19,11 +19,8 @@ circuit rgb_rom_4
 		0x0FDA, 0x0CE9, 0x0AEB, 0x0AFE, 0x0BEF, 0x0DDD, 0x0111, 0x0111
 	};
 
-	reg_wr dout_reg<16>;
+	reg dout_reg<16>;
 
-	instruct read par{
-		dout_reg := cells[adrs];
-	}
-
+	instruct read dout_reg := cells[adrs];
 	dout = dout_reg;
 }

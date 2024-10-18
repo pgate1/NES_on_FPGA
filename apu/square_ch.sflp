@@ -28,7 +28,7 @@ circuit square_ch
 	envelope_generator env;
 	length_counter len;
 
-	reg_wr period_high<4>, period_low<8>;
+	reg period_high<4>, period_low<8>;
 
 	// Sweep Unit
 	reg_wr sweep_enable, sweep_halt;
@@ -40,13 +40,13 @@ circuit square_ch
 
 	timer_unit timer;
 	sel vol_out;
-	reg_wr vol_out_pre; // 立ち上がり検出用
+	reg vol_out_pre; // 立ち上がり検出用
 
 	// Sequencer
 	reg_wr seq_side, seq_count<3>, seq_duty<2>;
 
 	instrout note_on, tim_out;
-	reg_wr old_period<11>;
+	reg old_period<11>;
 
 	stage_name length_set { task do(); }
 	stage_name SweepUnit { task do(); }
@@ -154,7 +154,7 @@ circuit square_ch
 
 	// 120Hz
 	stage SweepUnit {
-		reg_wr sweep_div<3>;
+		reg sweep_div<3>;
 		par{
 			finish;
 			alt{

@@ -42,10 +42,10 @@ circuit MapperNSF_nonEx
 	input exram_rdata<8>;
 
 	// 外部RAMへのアクセス
-	instrout prg_ram_read(prg_ram_adrs);
-	output prg_ram_adrs<20>;
-	output prg_ram_wdata<8>;
-	instrout prg_ram_write(prg_ram_adrs, prg_ram_wdata);
+	instrout prg_rom_read(prg_rom_adrs);
+	output prg_rom_adrs<20>;
+	output prg_rom_wdata<8>;
+	instrout prg_rom_write(prg_rom_adrs, prg_rom_wdata);
 	input prg_rom_rdata<8>;
 
 	// 未使用
@@ -60,9 +60,9 @@ circuit MapperNSF_nonEx
 
 	instrin tim1MHz;
 	reg_wr nmi_on;
-	reg_ws speed_count<16>;
-	reg_wr speed_NTSC_L<8>, speed_NTSC_H<8>;
-	reg_wr speed_PAL_L<8>, speed_PAL_H<8>;
+	reg speed_count<16>;
+	reg speed_NTSC_L<8>, speed_NTSC_H<8>;
+	reg speed_PAL_L<8>, speed_PAL_H<8>;
 	instrout NMI_out;
 	output f_PAL;
 	reg_wr f_speed_PAL;
@@ -71,13 +71,18 @@ output dbg<16>;
 reg_wr dbg_reg<16>;
 
 	rega nsf_bank[8]<8>;
-	reg_wr ext_sound<8>;
+	reg ext_sound<8>;
 	sel badrs<20>;
+
+	output title_str<256>, title_length<5>;
+	output artist_str<128>;
 
 	nsf_init_rom init_rom;
 
-	reg_wr set_data<8>;
+	reg set_data<8>;
 	reg_wr set_ok_reg;
+
+	instrout exrom_ack;
 
 	stage_name attach_stg { task do(set_data); }
 
@@ -105,7 +110,7 @@ reg_wr dbg_reg<16>;
 			}
 			map_exram : prg_Dout = exram_rdata;
 			map_rom : any{ // IRQ,BRKはPRG-ROMを見る
-				prg_A==0b11111111111_1010 : prg_Dout = 0x20; // NMI
+				prg_A==0b11111111111_1010 : prg_Dout = 0x30; // NMI
 				prg_A==0b11111111111_1011 : prg_Dout = 0x41; // NMI
 				prg_A==0b11111111111_1100 : prg_Dout = 0x00; // RST
 				prg_A==0b11111111111_1101 : prg_Dout = 0x41; // RST
@@ -116,7 +121,7 @@ reg_wr dbg_reg<16>;
 		IRQn = 0b1;
 
 		f_PAL = f_speed_PAL;
-		
+
 		usound = 0b00000000000; // <11>
 
 		ssound = 0b00000000000000; // <14s>
@@ -124,7 +129,7 @@ reg_wr dbg_reg<16>;
 		ack = ^attach_stg.do;
 
 		set_ok = set_ok_reg;
-		
+
 dbg = dbg_reg;
 	}
 
@@ -132,12 +137,15 @@ dbg = dbg_reg;
 		generate attach_stg.do(set_Din);
 	}
 
+	reg_wr read_ack_wait;
+
 	instruct prg_read any{
-		map_exrom : any{
+		map_exrom : par{
 			// NSF
-			prg_A<12:8>==0b0_0001 : par{ // $4100
+			if(prg_A<12:8>==0b0_0001){ // $4100
 				init_rom.read(prg_A<7:0>);
 			}
+			read_ack_wait := 0b1;
 		}
 		map_exram : par{
 			exram_read(prg_A<12:0>);
@@ -147,8 +155,13 @@ dbg = dbg_reg;
 			any(i=0;i<8;i++){
 				prg_A<14:12>==i : badrs = nsf_bank[i] || prg_A<11:0>;
 			}
-			prg_ram_read(badrs);
+			prg_rom_read(badrs);
 		}
+	}
+
+	if(read_ack_wait){
+		read_ack_wait := 0b0;
+		exrom_ack();
 	}
 
 	instruct prg_write par{
@@ -185,9 +198,9 @@ dbg = dbg_reg;
 	}
 
 	stage attach_stg {
-		reg_wr hA<8>, pBank<8>, pA<20>; // pA<8+12>
-		reg_wr bank_check, recv_ok;
-		reg_wr LoadAdrs_low<8>, LoadAdrs_high<7>, banks<8>;
+		reg hA<8>, pBank<8>, pA<20>; // pA<8+12>
+		reg bank_check, recv_ok;
+		reg LoadAdrs_low<8>, LoadAdrs_high<7>, banks<8>;
 		first_state init;
 		par{
 			finish;
@@ -202,13 +215,13 @@ dbg = dbg_reg;
 		}
 		state head par{ // 128バイト書き込み
 			any{
-				hA==0x07 : init_rom.write(0x10, set_data-0x01); // 曲指定(UART,SDカード共通)
+				hA==0x07 : init_rom.write(0x15, set_data-0x01); // 曲指定(UART,SDカード共通)
 				hA==0x08 : LoadAdrs_low  := set_data;
 				hA==0x09 : LoadAdrs_high := set_data<6:0>;
-				hA==0x0A : init_rom.write(0x14, set_data); // InitAdrs
-				hA==0x0B : init_rom.write(0x15, set_data);
-				hA==0x0C : init_rom.write(0x26, set_data); // PlayAdrs
-				hA==0x0D : init_rom.write(0x27, set_data);
+				hA==0x0A : init_rom.write(0x19, set_data); // InitAdrs
+				hA==0x0B : init_rom.write(0x1A, set_data);
+				hA==0x0C : init_rom.write(0x36, set_data); // PlayAdrs
+				hA==0x0D : init_rom.write(0x37, set_data);
 				hA==0x6E : speed_NTSC_L := set_data;
 				hA==0x6F : speed_NTSC_H := set_data;
 				hA==0x70 : nsf_bank_0 := set_data;
@@ -224,7 +237,7 @@ dbg = dbg_reg;
 				hA==0x7A : par{ // PAL速度のNSFがなさそう?2016/10/08
 					f_speed_PAL := set_data<0>;
 					// FamiTrackerで作ったものはLDXが必須
-					init_rom.write(0x12, set_data & 0x01); // LDX 0:NTSC, 1:PAL
+					init_rom.write(0x17, set_data & 0x01); // LDX 0:NTSC, 1:PAL
 				}
 				hA==0x7B : ext_sound := set_data;
 				hA==0x7E : if(set_data<0>) recv_ok := 0b1; // 予約領域、1ならUARTから転送済み
@@ -244,7 +257,7 @@ dbg = dbg_reg;
 			}
 		}
 		state prgw par{
-			prg_ram_write(pA, set_data);
+			prg_rom_write(pA, set_data);
 			pA++;
 			// UARTからの読み込み
 			if(pA<11:0>==(LoadAdrs_high<3:0>||LoadAdrs_low)){

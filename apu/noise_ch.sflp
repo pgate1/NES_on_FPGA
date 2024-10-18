@@ -34,13 +34,13 @@ circuit noise_ch
 	timer_unit timer;
 //	reg period<11>;
 
-	reg_wr period_index<4>;
+	reg period_index<4>;
 	sel time_idx<4>;
 	sel time_max<12>;
 	instrself time_table(time_idx);
 
 	// Random Generator
-	reg_wr random_data<15>;
+	reg random_data<15>;
 
 	length_counter len;
 

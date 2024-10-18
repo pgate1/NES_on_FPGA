@@ -44,11 +44,11 @@ circuit Mapper080
 	instrin init;
 
 	input n16kRomBanks<6>, fMirroringType;
-	reg_wr fMirroringType_reg;
+	reg fMirroringType_reg;
 
-	reg_wr prg_bank0<5>, prg_bank1<5>, prg_bank2<5>, prg_last_bank<5>;
-	reg_wr chr_bank01<6>, chr_bank23<6>; // ‹ô”‚Ì‚İ
-	reg_wr chr_bank4<7>, chr_bank5<7>, chr_bank6<7>, chr_bank7<7>;
+	reg prg_bank0<5>, prg_bank1<5>, prg_bank2<5>, prg_last_bank<5>;
+	reg chr_bank01<6>, chr_bank23<6>; // ‹ô”‚Ì‚İ
+	reg chr_bank4<7>, chr_bank5<7>, chr_bank6<7>, chr_bank7<7>;
 
 	instrself map_rom, map_exram;
 

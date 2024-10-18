@@ -11,7 +11,7 @@ circuit sprite_ram
 	instrin init;
 
 	ram_8x256 ram0;
-	reg_wr dout_reg<8>;
+	reg dout_reg<8>;
 	instrself ack;
 
 	stage_name read_wait { task do(); }

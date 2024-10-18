@@ -29,23 +29,13 @@ circuit wave_effect
 		else vsync_count++;
 	}
 	if(vsync_count==0){
-		reg_wr wave_count<13>, f_wave, sum<16>, average<8>;
+		reg_wr wave_count<13>, f_wave;
 		any{
-			(f_wave==0b0) & (wave_count==0)    : par{
-				f_wave := 0b1;
-				sum := 0;
-			}
-			(f_wave==0b1) & /&wave_count<12:4> : par{
-				f_wave := 0b0;
-				average := sum<7:0>;
-			}
+			(f_wave==0b0) & (wave_count==0)    : f_wave := 0b1;
+			(f_wave==0b1) & /&wave_count<12:4> : f_wave := 0b0;
 			else : wave_count++;
 		}
-		if(f_wave){
-			if(wave_count<5:0>==0b000000) sum += 0x00 || sound;
-		//	wave_write(wave_count<12:4>, sound - average);
-			wave_write(wave_count<12:4>, (^sound<7>)||sound<6:0>);
-		}
+		if(f_wave) wave_write(wave_count<12:4>, (^sound<7>)||sound<6:0>);
 	}
 
 	instruct read par{
@@ -57,15 +47,14 @@ circuit wave_effect
 	}
 
 	if((vcount<9:3>==(wave_dout<7:1>+45)) | (hcount<9:2>==sound)){
-//	if((vcount<9:3>==(wave_dout<7:1>+120)) | (hcount<9:2>==wave_dout)){
 		r_out = col_count<14:10>;
 		g_out = col_count<9:5>;
 		b_out = col_count<4:0>;
 	}
 	else{
-		r_out = 0b00010;
-		g_out = 0b00010;
-		b_out = 0b00010;
+		r_out = 0b00011;
+		g_out = 0b00011;
+		b_out = 0b00011;
 	}
 
 }

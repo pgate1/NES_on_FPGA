@@ -63,12 +63,12 @@ input dbg<8>;
 
 	n106_core n106;
 
-	reg_wr regs0, regs1;
-	reg_wr irq_counter_L<8>, irq_counter_H<8>, irq_enabled;
+	reg regs0, regs1;
+	reg irq_counter_L<8>, irq_counter_H<8>, irq_enabled;
 
 	instrout exrom_ack;
 
-	reg_wr prg_mask<6>, chr_mask<8>;
+	reg prg_mask<6>, chr_mask<8>;
 	sel chr_bank<8>;
 	sel irq_counter_s<16>;
 

@@ -21,7 +21,7 @@
 
 %i "../nes_core.h"
 %i "../mapper/Mapper.h"
-%i "../display.h"
+%i "Display_3.h"
 %i "../../../hdl/pspad_ctrl.h"
 %i "VGA_ctrl.h"
 %i "../../../hdl/chat_mask.h"
@@ -80,15 +80,15 @@ circuit core
 	VGA_ctrl vga;
 	reg_wr red_out_reg<4>, grn_out_reg<4>, blu_out_reg<4>;
 	reg_wr clock25M_div;
-	Display dis;
+	Display_3 dis;
 	reg_ws dis_timing;
 //--------------------- Audio ------------------------
 	input audio_RD;
 	output audio_DATA<32>;//<16>;
 	dac_ctrl dac;
 //--------------------- PS PAD ------------------------
-	output PAD_SEL1n, PAD_SEL2n, PAD_CLK, PAD_CMD;
-	input PAD_ACKn, PAD_DAT;
+//	output PAD_SEL1n, PAD_SEL2n, PAD_CLK, PAD_CMD;
+//	input PAD_ACKn, PAD_DAT;
 //	PSPAD_ctrl pad;
 	sel psw_pad<8>;
 //------------------------------------------------------
@@ -100,7 +100,6 @@ circuit core
 	// NES
 	nes_core nes;
 	Mapper cart;
-	reg_wr cnt_1MHz<6>;
 
 	reg_wr file_num<8>;
 
@@ -215,6 +214,7 @@ circuit core
 	VGA_G = grn_out_reg & (4#vga.view_valid);
 	VGA_B = blu_out_reg & (4#vga.view_valid);
 
+	nes.f_real_cartridge = 0b0;
 	nes.IRQn = cart.IRQn;
 	nes.VRAM_CSn = cart.VRAM_CSn;
 	nes.VRAM_A10 = cart.VRAM_A10;
@@ -229,6 +229,7 @@ circuit core
 	if(^prg_read_ok) cart.ready();
 	instruct nes.clk_out cart.Phi();
 
+	reg_wr cnt_1MHz<6>;
 	if(cnt_1MHz==50){
 		cart.tim1MHz();
 		cnt_1MHz := 1;
@@ -306,7 +307,7 @@ circuit core
 	nes.pad1P = psw_pad
 		 | (keys[0x74] || keys[0x6B] || keys[0x72] || keys[0x75] || keys[0x5A] || keys[0x29] || keys[0x1A] || keys[0x22]);
 	//プッシュスイッチでマリオ
-	psw_pad = /*key_2*/SW<2> || key_3 || 0b0 || SW<1> || SW<0> || SW<3> || 0b0 || key_1;
+	psw_pad = (key_2 | SW<2>) || key_3 || 0b0 || SW<1> || SW<0> || SW<3> || 0b0 || key_1;
 
 	nes.pad2P = 0x00;
 /*
@@ -358,11 +359,10 @@ circuit core
 		cart.prg_read();
 	}
 	nes.prg_din = cart.prg_Dout;
+	instruct cart.prg_ack nes.prg_ack();
 
 	cart.prg_Din = nes.prg_dout;
-	instruct nes.write_prg par{
-		cart.prg_write();
-	}
+	instruct nes.write_prg cart.prg_write();
 
 	cart.chr_A = nes.PA;
 	instruct nes.read_chr par{
@@ -370,25 +370,29 @@ circuit core
 		if(prg_read_ok) cart.chr_read();
 	}
 	nes.chr_din = cart.chr_Dout;
+	instruct cart.chr_ack nes.chr_ack();
 
 	cart.chr_Din = nes.chr_dout;
 	instruct nes.write_chr par{
-		cart.chr_write();
+	/*	// romセット時にchr_rom書き込み防止
+		if(prg_read_ok)*/ cart.chr_write();
 	}
 
-	instruct cart.prg_ram_read par{
+	instruct cart.prg_rom_read par{
 		// sdramが1MWord品なのでそれより大きいNSFは未サポート
-		sdram.read(0b00||cart.prg_ram_adrs<19:0>);
+		sdram.read(0b00||cart.prg_rom_adrs<19:0>);
 	}
+	if(sdram.ack) cart.prg_rom_ack();
 	cart.prg_rom_rdata = sdram.rdata<7:0>; // prg_rdata; sram.rdata<7:0>;
 
-	instruct cart.prg_ram_write par{
-		sdram.write(0b00||cart.prg_ram_adrs<19:0>, 0x00||cart.prg_ram_wdata);
+	instruct cart.prg_rom_write par{
+		sdram.write(0b00||cart.prg_rom_adrs<19:0>, 0x00||cart.prg_rom_wdata);
 	}
 
 	instruct cart.chr_ram_read par{
 		sram.read(cart.chr_ram_adrs);
 	}
+	if(sram.ack) cart.chr_ram_ack();
 	cart.chr_ram_rdata = sram.rdata<7:0>;
 
 	instruct cart.chr_ram_write par{

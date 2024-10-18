@@ -13,7 +13,7 @@ circuit Display_5
 	rgb_rom_5 colrom;
 	ram_16x256 ram0, ram1;
 	reg_wr radrs<8>, wadrs<8>, bank;
-	reg_wr col_reg<16>, read_ack;
+	reg col_reg<16>, read_ack;
 	sel col<16>;
 
 	stage_name rgb_get { task do(); }

@@ -158,15 +158,16 @@ output dbg<16>;
 #endif
 
 	instrin set_head(set_Din);
-	reg_wr mapper_id_low<4>, hdA<4>;
+	reg_wr hdA<4>;
 	instrout head_ok, head_err;
 	output f_nes;
 
-	instrin set_map(set_Din), soft_reset;
+	instrin set_type(set_Din), soft_reset;
+	reg map_type<8>;
 	instrin attach(set_Din);
 	input set_Din<8>;
 	output ack, set_ok;
-	reg_wr set_data<8>;
+	reg set_data<8>;
 	instrself init();
 
 	// 外部RAMへのアクセス
@@ -175,7 +176,7 @@ output dbg<16>;
 	input prg_rom_rdata<8>;
 	instrout prg_rom_write(prg_rom_adrs, prg_rom_wdata);
 	output prg_rom_wdata<8>;
-	reg_wr prg_rom_adrs_reg<20>;
+	reg prg_rom_adrs_reg<20>;
 	instrin prg_rom_ack;
 
 	instrout chr_ram_read(chr_ram_adrs);
@@ -183,7 +184,7 @@ output dbg<16>;
 	input chr_ram_rdata<8>;
 	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
 	output chr_ram_wdata<8>;
-	reg_wr chr_ram_adrs_reg<18>, chr_ram_wdata_reg<8>;
+	reg chr_ram_adrs_reg<18>, chr_ram_wdata_reg<8>;
 	instrin chr_ram_ack;
 
 	instrself ext_ram_read(ext_ram_adrs);
@@ -205,7 +206,7 @@ input dbg_in<8>;
 
 	instrin hblank;
 
-	reg_wr n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
+	reg n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
 
 	ram_8x8k exram;
 
@@ -314,8 +315,10 @@ dbg = mapper_nsf.dbg;
 	mapper_000.prg_A = prg_A;
 //	mapper_000.prg_Din = prg_Din;
 	mapper_000.chr_A = chr_A;
+	mapper_000.chr_Din = chr_Din; // add
 	mapper_000.chr_ram_rdata = chr_ram_rdata;
 	mapper_000.n16kRomBanks = n16kRomBanks;
+	mapper_000.n8kVRomBanks = n8kVRomBanks; // add
 	mapper_000.fMirroringType = fMirroringType;
 #endif
 #ifdef Map001
@@ -370,7 +373,6 @@ dbg = mapper_nsf.dbg;
 	mapper_005.prg_A = prg_A;
 	mapper_005.prg_Din = prg_Din;
 	mapper_005.chr_A = chr_A;
-	mapper_005.chr_Din = chr_Din;
 	mapper_005.chr_ram_rdata = chr_ram_rdata;
 	mapper_005.n16kRomBanks = n16kRomBanks;
 	mapper_005.n8kVRomBanks = n8kVRomBanks;
@@ -705,6 +707,7 @@ dbg = mapper_nsf.dbg;
 
 	instruct chr_write par{
 		switch(mapper_id){
+			case   0: if(mapper_enable<  0>) mapper_000.chr_write(); // add for 2048.nes
 			case   1: if(mapper_enable<  1>) mapper_001.chr_write();
 			case   2: if(mapper_enable<  2>) mapper_002.chr_write();
 			case   4: if(mapper_enable<  4>) mapper_004.chr_write();
@@ -761,6 +764,9 @@ dbg = mapper_nsf.dbg;
 	}
 	instruct mapper_000.chr_ram_read par{
 		chr_ram_read(0b00000||mapper_000.chr_ram_adrs);
+	}
+	instruct mapper_000.chr_ram_write par{ // add
+		chr_ram_write(0b00000||mapper_000.chr_ram_adrs, mapper_000.chr_ram_wdata);
 	}
 #endif
 #ifdef Map001
@@ -823,11 +829,6 @@ dbg = mapper_nsf.dbg;
 	instruct mapper_005.chr_ram_read par{
 		chr_ram_read(mapper_005.chr_ram_adrs);
 	}
-/*
-	instruct mapper_004.chr_ram_write par{
-		chr_ram_write(mapper_004.chr_ram_adrs, mapper_004.chr_ram_wdata);
-	}
-*/
 	instruct mapper_005.exram_read par{
 		ext_ram_read(mapper_005.exram_adrs);
 	}
@@ -986,14 +987,14 @@ dbg = mapper_nsf.dbg;
 			hdA==0x1 : if(set_Din!='E') head_err();
 			hdA==0x2 : if(set_Din!='S') head_err();
 			hdA==0x3 : if(set_Din=='M'){ // NSF
-				mapper_id := 0x0C;
+				mapper_id := 0x0C; // 12
 				head_ok();
 			}
 			hdA==0x6 : par{ // NES ROM
-				mapper_id_low := set_Din<7:4>;
+				mapper_id := mapper_id<7:4> || set_Din<7:4>;
 			}
 			hdA==0x7 : par{ // NES ROM
-				mapper_id := set_Din<7:4> || mapper_id_low;
+				mapper_id := set_Din<7:4> || mapper_id<3:0>;
 				head_ok();
 			}
 		}
@@ -1001,18 +1002,19 @@ dbg = mapper_nsf.dbg;
 		else hdA++;
 	}
 
-	instruct set_map par{
-		mapper_id := set_Din;
+	instruct set_type par{
+		map_type := set_Din;
+		if(set_Din=='S') mapper_id := 12; // NSF
 	}
 
 	instruct attach par{
-		if(mapper_id==12) mapper_nsf.attach(set_Din);
+		if(map_type=='S') mapper_nsf.attach(set_Din);
 		else generate attach_stg.do(set_Din);
 	}
 
 	stage attach_stg {
 		reg_wr set_ok_reg;
-		reg_wr hA<4>, pA<14>, pbA<5>, cbA<5>;
+		reg hA<4>, pA<14>, pbA<5>, cbA<5>;
 		first_state ainit;
 		par{
 			set_ok = set_ok_reg | mapper_nsf.set_ok;
@@ -1030,7 +1032,13 @@ dbg = mapper_nsf.dbg;
 			any{
 				hA==0x4 : n16kRomBanks := set_data<5:0>;
 				hA==0x5 : n8kVRomBanks := set_data<5:0>;
-				hA==0x6 : fMirroringType := set_data<0>;
+				hA==0x6 : par{
+					fMirroringType := set_data<0>;
+					mapper_id := mapper_id<7:4> || set_data<7:4>;
+				}
+				hA==0x7 : par{
+					mapper_id := set_data<7:4> || mapper_id<3:0>;
+				}
 			}
 			hA++;
 			if(/&hA) goto prgw;

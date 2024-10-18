@@ -38,7 +38,7 @@ circuit Mapper002
 	input chr_ram_rdata<8>;
 
 	input n16kRomBanks<6>, fMirroringType;
-	reg_wr prg_bank<4>;
+	reg prg_bank<4>;
 
 	par{
 

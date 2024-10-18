@@ -15,15 +15,15 @@ circuit Mapper000
 	output IRQn;
 
 	// CHR-ROM
-	instrin chr_read; //, chr_write; // RDn, WEn
-	input chr_A<14>; //, chr_Din<8>; // chr_A13n
+	instrin chr_read, chr_write; // RDn, WEn
+	input chr_A<14>, chr_Din<8>; // chr_A13n
 	output chr_Dout<8>;
 	output VRAM_CSn, VRAM_A10;
 
 //	instrin Phi; // 1.789MHz
 	output usound<11>, ssound<14>;
 
-	input n16kRomBanks<6>, fMirroringType;
+	input n16kRomBanks<6>, n8kVRomBanks<6>, fMirroringType;
 
 	// 外部RAMへのアクセス
 	instrout prg_rom_read(prg_rom_adrs);
@@ -32,8 +32,8 @@ circuit Mapper000
 
 	instrout chr_ram_read(chr_ram_adrs);
 	output chr_ram_adrs<13>; // CHR_ROM 8KB
-//	output chr_ram_wdata<8>;
-//	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata);
+	output chr_ram_wdata<8>; // add
+	instrout chr_ram_write(chr_ram_adrs, chr_ram_wdata); // add
 	input chr_ram_rdata<8>;
 
 	par{
@@ -73,6 +73,12 @@ circuit Mapper000
 	instruct chr_read par{
 		if(chr_A<13>==0b0){
 			chr_ram_read(chr_A<12:0>);
+		}
+	}
+
+	instruct chr_write if(n8kVRomBanks==0){ // add
+		if(chr_A<13>==0b0){
+			chr_ram_write(chr_A<12:0>, chr_Din);
 		}
 	}
 

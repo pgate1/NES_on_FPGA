@@ -18,19 +18,19 @@ circuit ppu_core
 	/* for 6502 */
 	input A<3>, Din<8>;
 	output Dout<8>;
-	reg_wr Dout_reg<8>;
+	reg Dout_reg<8>;
 	instrin read_io(A), write_io(A, Din);
 	output o_NMI;
 	reg_wr NMI_reg;
 
 	/* for CHR-ROM */
 	output PA<14>, PDout<8>;
-	reg_wr PA_reg<14>, PDout_reg<8>;
+	reg PA_reg<14>, PDout_reg<8>;
 	input PDin<8>;
 	instrout read_req, write_req;
 	instrin read_ack;
 	sel rid<4>;
-	reg_wr rid_reg<4>;
+	reg rid_reg<4>;
 
 	instrin soft_reset, draw;
 
@@ -40,13 +40,13 @@ circuit ppu_core
 
 	reg_ws reset;
 
-	reg_wr scanline<9>;
-	reg_wr bg_pat_name<8>;
-	reg_wr bg_pat_low<8>, bg_pat_low_tmp<8>;
-	reg_wr bg_pat_high<8>, bg_pat_high_tmp<8>;
-	reg_wr bg_col_high<2>, bg_col_high_tmp<2>, bg_pat_attribute<8>;
-	reg_wr name_id<2>, mem_hsync;
-	reg_wr tile_num<6>;
+	reg scanline<9>;
+	reg bg_pat_name<8>;
+	reg bg_pat_low<8>, bg_pat_low_tmp<8>;
+	reg bg_pat_high<8>, bg_pat_high_tmp<8>;
+	reg bg_col_high<2>, bg_col_high_tmp<2>, bg_pat_attribute<8>;
+	reg name_id<2>, mem_hsync;
+	reg tile_num<6>;
 
 	instrin hblank;
 	reg_wr bg_draw_do;
@@ -55,24 +55,25 @@ circuit ppu_core
 	/* status flags */
 	reg_wr f_vblank, f_spr_hit, f_spr_num;
 	reg_wr f_2005_2006;
-	reg_wr tmp_read_2007<8>;
-	reg_wr v_adrs<14>;
+	reg tmp_read_2007<8>;
+	reg v_adrs<14>;
 
 	/* config flags */
 	reg_wr f_NMI_enable, f_spr_size;
 	reg_wr f_bg_pat_base, f_spr_pat_base;
-	reg_wr f_vadrs_inc, name_id_t<2>;
+	reg f_vadrs_inc, name_id_t<2>;
 
 	reg_wr f_spr_enable;//, f_spr_enable_tmp;
 	reg_wr f_bg_enable;//, f_bg_enable_tmp;
 	sel view_enable;
 	reg_wr f_bg_left_clip, f_spr_left_clip;
-	reg_wr f_col_mono, spr_adrs<8>;
+	reg f_col_mono, spr_adrs<8>;
 
-	reg_wr bg_scrl_x<8>, bg_scrl_x_t<8>;
-	reg_wr bg_scrl_y<8>, bg_scrl_y_t<8>;
+	reg bg_scrl_x<8>, bg_scrl_x_t<8>;
+	reg bg_scrl_y<8>, bg_scrl_y_t<8>;
 
-	reg_wr vx<8>, sprbuf_read_on, dummy_read_on;
+	reg vx<8>;
+	reg_wr sprbuf_read_on, dummy_read_on;
 
 	sprite_ram spr_ram;
 	palette_ram pal_ram;
@@ -89,11 +90,11 @@ circuit ppu_core
 
 	mem spr_v[8];
 
-	reg_wr spr_y<3>;
-	reg_wr spr_pat_base, spr_pat_name<8>;
+	reg spr_y<3>;
+	reg spr_pat_base, spr_pat_name<8>;
 //	reg_wr spr_pat_low<8>, spr_pat_high<8>;
 //	sel spr_pat_low_sel<8>, spr_pat_high_sel<8>;
-	reg_wr spr_buf_set<8>;
+	reg spr_buf_set<8>;
 
 	instrself reset_act;
 	instrself read(rid, PA), write(PA, PDout);
@@ -103,7 +104,7 @@ circuit ppu_core
 	instrself spr_get(spr_tmp_y_s, spr_tmp_id_s, spr_tmp_at_7_s);
 	sel spr_at_6, spr_pat_buf<8>, spr_pat_sel<8>;
 	instrself spr_inv(spr_at_6, spr_pat_buf), spr_xdown, spr_buf_shift;
-	reg_wr buf_read<3>;
+	reg buf_read<3>;
 
 	instrself halt(h_code);
 	sel h_code<8>;
@@ -326,7 +327,7 @@ if(^hhh) halt(0x45);
 	// 水平同期時の管理
 	// ラインの最初に起動、コメントは起動後のline
 	stage FRAME {
-		reg_wr vbline<5>, frame<8>;
+		reg vbline<5>;//, frame<8>;
 		first_state vb_st;
 		finish;
 		state vb_st par{ // 240 (0) VBlank start
@@ -364,7 +365,7 @@ if(^hhh) halt(0x45);
 			bg_scrl_y := bg_scrl_y_t;
 			scanline := 0;
 			vblank_run := 0b0;
-			frame++;
+		//	frame++;
 			goto draw_in;
 		}
 		state draw_in par{ // draw line 1 - 239
@@ -391,7 +392,7 @@ if(^hhh) halt(0x45);
 	// 次のラインで描画されるべきスプライトの探索
 	// 4*64+2=258
 	stage SPR_MEM {
-		reg_wr srch_slct<8>, spr_mad<6>;
+		reg srch_slct<8>, spr_mad<6>;
 		sel srch_i<3>, spr_inc<6>, scan_sub<9>;
 		instrself srch_end;
 		first_state sst;
@@ -463,7 +464,7 @@ if(^hhh) halt(0x45);
 	// スプライトパターンの読み込み
 	// 5*8+1=41
 	stage SPR_BUF {
-		reg_wr buf_slct<8>;
+		reg buf_slct<8>;
 		sel buf_i<3>;
 		first_state sst;
 		par{
@@ -529,7 +530,7 @@ if(^hhh) halt(0x45);
 	// BGパターンの読み込み
 	stage BG_MEM {
 		sel bg_name_base<4>, bg_attribute_base<8>;
-		reg_wr tile_x<6>, mem_wait<7>, dmy_count;
+		reg tile_x<6>, mem_wait<7>;
 		sel d_name_id<2>, d_bg_scrl_y<8>;
 		instrself pat_reg_update;
 		first_state bgm1;
@@ -592,6 +593,7 @@ if(^hhh) halt(0x45);
 		//	if(tile_x==(0b1||bg_scrl_x<7:3>)) goto stdrww;
 			if(tile_num==32) goto stdrww;
 			else goto bgm1;
+			mem_wait := 0;
 		} // 8*33=264
 		state stdrww /*if(^bg_draw_do)*/par{
 			if(mem_wait==0) pat_reg_update();
@@ -627,6 +629,7 @@ if(^hhh) halt(0x45);
 			goto stdmyw;
 		}
 		state stdmyw par{
+			reg_wr dmy_count;
 			if(dmy_count==0) goto stdmy;
 			else{
 				hhh := 1;
@@ -655,7 +658,7 @@ if(^hhh) halt(0x45);
 		sela spr_col[8]<5>;
 		sel spr_mcol<5>, bg_col_low<2>, zero_hit;
 		sel spr_face<4>, bg_face<4>, pal_adrs<5>;
-		reg_wr dsc_set_reg, clip_x<8>;
+		reg dsc_set_reg, clip_x<8>;
 		instrself dsc_set, fi_bg_left_clip, fi_spr_left_clip;
 		first_state sst;
 		par{
@@ -668,16 +671,21 @@ if(^hhh) halt(0x45);
 				spr_v[i]&(/&spr_buf_x[i]<7:3>)&(/|spr_col[i]<1:0>) : spr_mcol = spr_col[i];
 				else : spr_mcol = 0b10000;
 			}
+/*
 			any(i=0;i<1;i++){
 				spr_v[i]&(/&spr_buf_x[i]<7:3>)&(/|spr_col[i]<1:0>) : zero_hit = 0b1;
 				else : zero_hit = 0b0;
 			}
+*/
+			if(spr_v[0]&(/&spr_buf_x[0]<7:3>)&(/|spr_col_0<1:0>)) zero_hit = 0b1;
+			else zero_hit = 0b0;
 
 			bg_col_low = bg_pat_high<7> || bg_pat_low<7>;
 		}
 
 		state sst par{
 			vx := 0x00;
+			dsc_set_reg := 0b0;
 			clip_x := 0x00;
 			goto st1;
 		}

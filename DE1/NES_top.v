@@ -109,6 +109,8 @@ wire audio_SET;
 //--------------------- SD_Card Interface ------------------
 		.SD_CSn(SD_CSn), .SD_CLK(SD_CLK),
 		.SD_CMD(SD_CMD), .SD_DAT(SD_DAT),
+//-------------------- PS/2 --------------------------------
+		.PS2_CLK(PS2_CLK), .PS2_DAT(PS2_DAT),
 //--------------------- VGA --------------------------------
 		.VGA_HS(VGA_HS), .VGA_VS(VGA_VS),
 		.VGA_R(VGA_R), .VGA_G(VGA_G), .VGA_B(VGA_B),
@@ -148,8 +150,9 @@ wire audio_SET;
 	);
 
 	// make 18.4MHz
+	// リセット無い方がリセット時にプチノイズ入らないっぽい
 	audio_pll audio_pll_inst (
-		.areset(g_reset), .inclk0(CLK_27[0]), .c0(CLK_18_4)
+		.inclk0(CLK_27[0]), .c0(CLK_18_4)
 	);
 
 	AUDIO_ctrl AU (
@@ -168,7 +171,7 @@ wire audio_SET;
 	assign FLASH_WEn = 1'b1;
 
 	assign GPIO_0 = 36'hz;
-
+/*
 	assign GPIO_1[1] = 1'bz;
 	assign GPIO_1[3] = 1'bz;
 	assign GPIO_1[5] = 1'bz;
@@ -179,5 +182,7 @@ wire audio_SET;
 	assign GPIO_1[12] = 1'b1; // PAD 3.3V
 	assign GPIO_1[13] = 1'bz;
 	assign GPIO_1[35:15] = 21'bz;
+*/
+	assign GPIO_1 = 36'hz;
 
 endmodule

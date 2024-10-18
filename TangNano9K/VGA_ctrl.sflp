@@ -18,15 +18,13 @@ circuit VGA_ctrl
 	stage_name hsync_cnt { task do(); }
 	stage_name vsync_cnt { task do(); }
 
-	par{
-		if(reset){
-			vsync_count := 509;
-			reset := 0b0;
-		}
-
-		view_valid = h_valid & v_valid;
-		win_valid = h_win_valid & v_win_valid;
+	if(reset){
+		vsync_count := 509;
+		reset := 0b0;
 	}
+
+	view_valid = h_valid & v_valid;
+	win_valid = h_win_valid & v_win_valid;
 
 	instruct run par{
 		generate hsync_cnt.do();
@@ -76,7 +74,7 @@ circuit VGA_ctrl
 
 			if(h_dis_run) dis();
 
-			if(hsync_count==ht_nu) hcount_reg := 0;
+			if(hsync_count==ht_vu) hcount_reg := 0;
 			else hcount_reg++;
 		}
 	}
@@ -119,7 +117,7 @@ circuit VGA_ctrl
 				nes_hsync();
 			}
 
-			if(vsync_count==vt_nu) vcount_reg := 0;
+			if(vsync_count==vt_vu) vcount_reg := 0;
 			else vcount_reg++;
 		}
 	}

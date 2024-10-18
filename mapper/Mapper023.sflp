@@ -45,22 +45,22 @@ circuit Mapper023
 	instrin hblank;
 
 	input fMirroringType;
-	reg_wr fMirroringType_reg<2>;
+	reg fMirroringType_reg<2>;
 
 	sel prg_adrs<8>;
-	reg_wr prg_bank4<4>, prg_bank5<4>, prg_bank6<4>, prg_last_bank<4>;
-	reg_wr chr_bank0_L<4>, chr_bank1_L<4>, chr_bank2_L<4>, chr_bank3_L<4>;
-	reg_wr chr_bank4_L<4>, chr_bank5_L<4>, chr_bank6_L<4>, chr_bank7_L<4>;
-	reg_wr chr_bank0_H<4>, chr_bank1_H<4>, chr_bank2_H<4>, chr_bank3_H<4>;
-	reg_wr chr_bank4_H<4>, chr_bank5_H<4>, chr_bank6_H<4>, chr_bank7_H<4>;
+	reg prg_bank4<4>, prg_bank5<4>, prg_bank6<4>, prg_last_bank<4>;
+	reg chr_bank0_L<4>, chr_bank1_L<4>, chr_bank2_L<4>, chr_bank3_L<4>;
+	reg chr_bank4_L<4>, chr_bank5_L<4>, chr_bank6_L<4>, chr_bank7_L<4>;
+	reg chr_bank0_H<4>, chr_bank1_H<4>, chr_bank2_H<4>, chr_bank3_H<4>;
+	reg chr_bank4_H<4>, chr_bank5_H<4>, chr_bank6_H<4>, chr_bank7_H<4>;
 
 	instrself map_rom, map_exram;
 
 	reg_ws IRQn_reg;
-	reg_wr regs_8;
+	reg regs_8;
 
-	reg_wr irq_counter<8>, irq_enabled<2>; //irq_clock<8>;
-	reg_wr irq_latch_H<4>, irq_latch_L<4>;
+	reg irq_counter<8>, irq_enabled<2>; //irq_clock<8>;
+	reg irq_latch_H<4>, irq_latch_L<4>;
 
 	par{
 

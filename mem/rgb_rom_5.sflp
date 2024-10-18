@@ -19,11 +19,8 @@ circuit rgb_rom_5
 		0x7F74, 0x6793, 0x57B6, 0x57DD, 0x5BBF, 0x6F7B, 0x0842, 0x0842
 	};
 
-	reg_wr dout_reg<16>;
+	reg dout_reg<16>;
 
-	instruct read par{
-		dout_reg := cells[adrs];
-	}
-
+	instruct read dout_reg := cells[adrs];
 	dout = dout_reg;
 }

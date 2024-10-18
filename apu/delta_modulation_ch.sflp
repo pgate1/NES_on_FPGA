@@ -25,7 +25,7 @@ circuit delta_modulation_ch
 
 	reg_wr f_loop;
 	reg_wr start_adrs<8>, data_length<8>;
-	reg_wr period_index<4>;
+	reg period_index<4>;
 	reg_wr f_interrupt_enable;
 	reg_ws f_silence;
 
@@ -48,7 +48,7 @@ circuit delta_modulation_ch
 	instrself dma_adrs_length_set;
 
 	instrout note_on;
-	reg_wr old_delta<7>;
+	reg old_delta<7>;
 
 	input d7bit;
 output dbg<8>;

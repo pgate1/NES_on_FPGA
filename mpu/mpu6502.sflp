@@ -35,12 +35,12 @@ circuit mpu6502
 
 	reg_ws reset;
 	instrself reset_act;
-	reg_wr pch<8>, pcl<8>;
-	reg_wr ir<8>;
-	reg_wr ist<3>;
-	reg_wr data<8>, ah<8>, al<8>;
-	reg_wr ra<8>, rx<8>, ry<8>, sp<8>;
-	reg_wr fn, fv, fb, fd, fi, fz, fc;
+	reg pch<8>, pcl<8>;
+	reg ir<8>;
+	reg ist<3>;
+	reg data<8>, ah<8>, al<8>;
+	reg ra<8>, rx<8>, ry<8>, sp<8>;
+	reg fn, fv, fb, fd, fi, fz, fc;
 
 	sel pc<16>, nz<8>, adrs<16>;
 	reg_wr f_NMI, NMI_do;
@@ -52,7 +52,7 @@ circuit mpu6502
 //	reg_wr old_ir<8>;
 	reg_wr halt;
 	sel rid<3>;
-	reg_wr rid_reg<3>;
+	reg rid_reg<3>;
 
 	instrself accumulator;
 	instrself adrs_immediate;
@@ -402,549 +402,547 @@ dbg = sp;
 		}
 	}
 
-stage execute {
-	par{
-	finish;
-	any{
+	stage execute {
+		par{
+			finish;
+			any{
 
-		// STA ADC AND CMP EOR LDA ORA SBC
-		ir<0>==0b1 : any{
-			ir<4:2>==0b010 : adrs_immediate();
-			ir<4:2>==0b011 : adrs_absolute();
-			ir<4:2>==0b001 : adrs_zeropage();
-			ir<4:2>==0b000 : adrs_indirectx();
-			ir<4:2>==0b100 : adrs_indirecty();
-			ir<4:2>==0b101 : adrs_zeroindex(rx);
-			ir<4:2>==0b111 : adrs_absindex(rx);
-			ir<4:2>==0b110 : adrs_absindex(ry);
-			ist==DACS : par{
-				any{
-					I_STA : write(adrs, ra);
-					else : read(adrs, READ_DATA);
-				}
-				ist := EXEC;
-			}
-			ist==EXEC : par{
-				any{
-					I_ADC : par{
-						alu.add(ra, data, fc);
-						ra := alu.dout;
-						fc := alu.cout;
-						fv := alu.v;
-						flag_nz(alu.dout);
-					}
-					I_AND : par{
-						ra := alu.and1(ra, data).dout;
-						flag_nz(alu.dout);
-					}
-					I_CMP : compare(ra);
-					I_EOR : par{
-						ra := alu.eor1(ra, data).dout;
-						flag_nz(alu.dout);
-					}
-					I_LDA : par{
-						ra := data;
-						flag_nz(data);
-					}
-					I_ORA : par{
-						ra := alu.or1(ra, data).dout;
-						flag_nz(alu.dout);
-					}
-					I_SBC : par{
-						alu.sub(ra, data, fc);
-						fc := alu.cout;
-						ra := alu.dout;
-						fv := alu.v;
-						flag_nz(alu.dout);
-					}
-				}
-				nexti();
-			}
-		}
-
-		ir<0>==0b0 : any{
-
-		// ASL LSR ROL ROR
-		// 4clkÇ©ÇÁ5clkÇ…èCê≥ 2008/10/20
-		(ir<7>||ir<1>)==0b01 : any{
-			ist<2>==0b0 : any{
-				ir<4:2>==0b010 : accumulator();
-				ir<4:2>==0b011 : adrs_absolute();
-				ir<4:2>==0b001 : adrs_zeropage();
-				ir<4:2>==0b101 : adrs_zeroindex(rx);
-				ir<4:2>==0b111 : adrs_absindex(rx);
-			}
-			ist==DACS : par{
-				read(adrs, READ_DATA);
-				ist := EXEC;
-			}
-			I_ASL : any{
-				ist==EXEC : par{
-					data := alu.asl1(data).dout;
-					fc := alu.cout;
-					flag_nz(alu.dout);
-				//	write(adrs, data<6:0>||0b0); // dummy
-					ist := DACW;
-				}
-				accumulator : par{
-					ra := alu.asl1(ra).dout;
-					fc := alu.cout;
-					flag_nz(alu.dout);
-					ist := 0b111;
-				}
-			}
-			I_LSR : any{
-				ist==EXEC : par{
-					data := alu.lsr1(data).dout;
-					fc := alu.cout;
-					flag_nz(alu.dout);
-				//	write(adrs, 0b0 || data<7:1>); // dummy
-					ist := DACW;
-				}
-				accumulator : par{
-					ra := alu.lsr1(ra).dout;
-					fc := alu.cout;
-					flag_nz(alu.dout);
-					ist := 0b111;
-				}
-			}
-			I_ROL : any{
-				ist==EXEC : par{
-					data := alu.rol1(data, fc).dout;
-					fc := alu.cout;
-					flag_nz(alu.dout);
-				//	write(adrs, data<6:0> || fc); // dummy
-					ist := DACW;
-				}
-				accumulator : par{
-					ra := alu.rol1(ra, fc).dout;
-					fc := alu.cout;
-					flag_nz(alu.dout);
-					ist := 0b111;
-				}
-			}
-			I_ROR : any{
-				ist==EXEC : par{
-					data := alu.ror1(data, fc).dout;
-					fc := alu.cout;
-					flag_nz(alu.dout);
-				//	write(adrs, fc || data<7:1>); // dummy
-					ist := DACW;
-				}
-				accumulator : par{
-					ra := alu.ror1(ra, fc).dout;
-					fc := alu.cout;
-					flag_nz(alu.dout);
-					ist := 0b111;
-				}
-			}
-			ist==DACW : par{
-				write(adrs, data);
-				ist := 0b111;
-			}
-			ist==0b111 : nexti();
-		}
-
-		// BRK JSR RTI RTS JMP BIT PHA PHP PLA PLP
-		(ir<7>||ir<4>||ir<1>)==0b000 : any{ // 0--0_--00
-			I_BRK : any{ // 8clkÇ©ÇÁ7clkÇ…èCê≥ 2008/10/20
-				ist==0b000 : par{
-					pc_inc();
-					fb := 0b1;
-					ist := 0b001;
-				}
-				ist==0b001 : par{
-					stack_push(pch);
-					pch := 0xFF;
-					ist := 0b010;
-				}
-				ist==0b010 : par{
-					stack_push(pcl);
-					pcl := 0xFE;
-					ist := 0b011;
-				}
-				ist==0b011 : par{
-					stack_push(pstate);
-					fi := 0b1;
-					ir := 0x4C;	// JMP
-					ist := 0b000;
-				}
-			}
-			I_JSR : any{ // 6clk
-				ist==0b000 : par{
-					read(pc, READ_AL);
-					pc_inc();
-					ist := 0b001;
-				}
-				ist==0b001 : par{
-					read(pc, READ_AH);
-					// éëóøÇ…ÇÊÇ¡ÇƒÇ‹ÇøÇ‹ÇøÇæÇ™incÇ±Ç±Ç≈Ç∑ÇÈÇ∆É}ÉäÉIÇÃâÊñ Ç™èoÇ»Ç¢
-				//	pc_inc();
-					ist := 0b010;
-				}
-				ist==0b010 : par{
-					stack_push(pch);
-					pch := ah;
-					ist := 0b011;
-				}
-				ist==0b011 : par{
-					stack_push(pcl);
-					pcl := al;
-					ist := 0b100;
-				}
-				ist==0b100 : par{
-					ist := 0b111;
-				}
-				ist==0b111 : nexti();
-			}
-			I_RTI | I_RTS : any{ // 6clk
-				ist==0b000 : par{
-					stack_pop();
-					any{
-						I_RTI : ist := 0b001;
-						I_RTS : ist := 0b011;
-					}
-				}
-				ist==0b001 : par{
-					set_state(data);
-					ist := 0b010;
-				}
-				ist==0b010 : par{
-					stack_pop();
-					ist := 0b011;
-				}
-				ist==0b011 : par{
-					pcl := data;
-					ist := 0b100;
-				}
-				ist==0b100 : par{
-					stack_pop();
-					ist := 0b101;
-				}
-				ist==0b101 : par{
-					pch := data;
-					any{
-						I_RTI : ist := 0b111;
-						I_RTS : ist := 0b110;
-					}
-				}
-				ist==0b110 : par{
-					pc_inc();
-					ist := 0b111;
-				}
-				ist==0b111 : nexti();
-			}
-			I_JMP : any{
-				ist==0b000 : par{
-					read(pc, READ_AL);
-					pc_inc();
-					ist := 0b001;
-				}
-				ist==0b001 : par{
-					pcl := al;
-					read(pc, READ_PCH);
-					any{
-						ir<5>==0b0 : ist := 0b111;
-						ir<5>==0b1 : ist := 0b010;
-					}
-				}
-				ist==0b010 : par{
-					read(pc, READ_PCL);
-					ah := pch;
-					al := alu.add(al, 0x01, 0b0).dout; // adrs no carry
-					ist := 0b011;
-				}
-				ist==0b011 : par{
-					read(adrs, READ_PCH);
-					ist := 0b111;
-				}
-				ist==0b111 : nexti();
-			}
-			I_BIT : any{
-				ist<2>==0b0 : any{
-					ir<3>==0b0 : adrs_zeropage();
-					ir<3>==0b1 : adrs_absolute();
-				}
-				ist==DACS : par{
-					read(adrs, READ_DATA);
-					ist := EXEC;
-				}
-				ist==EXEC : par{
-					fv := data<6>;
-					fn := data<7>;
-					fz := ^(/|alu.and1(ra, data).dout);
-					nexti();
-				}
-			}
-			// PHA PHP PLA PLP
-			ir<3:2>==0b10 : any{
-				ir<5>==0b0 : any{
-					ist==0b000 : par{
+				// STA ADC AND CMP EOR LDA ORA SBC
+				ir<0>==0b1 : any{
+					ir<4:2>==0b010 : adrs_immediate();
+					ir<4:2>==0b011 : adrs_absolute();
+					ir<4:2>==0b001 : adrs_zeropage();
+					ir<4:2>==0b000 : adrs_indirectx();
+					ir<4:2>==0b100 : adrs_indirecty();
+					ir<4:2>==0b101 : adrs_zeroindex(rx);
+					ir<4:2>==0b111 : adrs_absindex(rx);
+					ir<4:2>==0b110 : adrs_absindex(ry);
+					ist==DACS : par{
 						any{
-							I_PHA : stack_push(ra);
-							// PHP break flag is set.
-							I_PHP : stack_push(pstate<7:5> || 0b1 || pstate<3:0>);
+							I_STA : write(adrs, ra);
+							else : read(adrs, READ_DATA);
 						}
-						ist := 0b001;
+						ist := EXEC;
 					}
-					ist==0b001 : ist := 0b111;
-					ist==0b111 : nexti();
-				}
-				ir<5>==0b1 : any{
-					ist==0b000 : par{
-						stack_pop();
-						ist := 0b001;
-					}
-					ist==0b001 : par{
+					ist==EXEC : par{
 						any{
-							I_PLA : par{
+							I_ADC : par{
+								alu.add(ra, data, fc);
+								ra := alu.dout;
+								fc := alu.cout;
+								fv := alu.v;
+								flag_nz(alu.dout);
+							}
+							I_AND : par{
+								ra := alu.and1(ra, data).dout;
+								flag_nz(alu.dout);
+							}
+							I_CMP : compare(ra);
+							I_EOR : par{
+								ra := alu.eor1(ra, data).dout;
+								flag_nz(alu.dout);
+							}
+							I_LDA : par{
 								ra := data;
 								flag_nz(data);
 							}
-							I_PLP : par{
+							I_ORA : par{
+								ra := alu.or1(ra, data).dout;
+								flag_nz(alu.dout);
+							}
+							I_SBC : par{
+								alu.sub(ra, data, fc);
+								fc := alu.cout;
+								ra := alu.dout;
+								fv := alu.v;
+								flag_nz(alu.dout);
+							}
+						}
+						nexti();
+					}
+				} // ir<0>==0b1
+
+				ir<0>==0b0 : any{
+
+					// ASL LSR ROL ROR
+					// 4clkÇ©ÇÁ5clkÇ…èCê≥ 2008/10/20
+					(ir<7>||ir<1>)==0b01 : any{
+						ist<2>==0b0 : any{
+							ir<4:2>==0b010 : accumulator();
+							ir<4:2>==0b011 : adrs_absolute();
+							ir<4:2>==0b001 : adrs_zeropage();
+							ir<4:2>==0b101 : adrs_zeroindex(rx);
+							ir<4:2>==0b111 : adrs_absindex(rx);
+						}
+						ist==DACS : par{
+							read(adrs, READ_DATA);
+							ist := EXEC;
+						}
+						I_ASL : any{
+							ist==EXEC : par{
+								data := alu.asl1(data).dout;
+								fc := alu.cout;
+								flag_nz(alu.dout);
+							//	write(adrs, data<6:0>||0b0); // dummy
+								ist := DACW;
+							}
+							accumulator : par{
+								ra := alu.asl1(ra).dout;
+								fc := alu.cout;
+								flag_nz(alu.dout);
+								ist := 0b111;
+							}
+						}
+						I_LSR : any{
+							ist==EXEC : par{
+								data := alu.lsr1(data).dout;
+								fc := alu.cout;
+								flag_nz(alu.dout);
+							//	write(adrs, 0b0 || data<7:1>); // dummy
+								ist := DACW;
+							}
+							accumulator : par{
+								ra := alu.lsr1(ra).dout;
+								fc := alu.cout;
+								flag_nz(alu.dout);
+								ist := 0b111;
+							}
+						}
+						I_ROL : any{
+							ist==EXEC : par{
+								data := alu.rol1(data, fc).dout;
+								fc := alu.cout;
+								flag_nz(alu.dout);
+							//	write(adrs, data<6:0> || fc); // dummy
+								ist := DACW;
+							}
+							accumulator : par{
+								ra := alu.rol1(ra, fc).dout;
+								fc := alu.cout;
+								flag_nz(alu.dout);
+								ist := 0b111;
+							}
+						}
+						I_ROR : any{
+							ist==EXEC : par{
+								data := alu.ror1(data, fc).dout;
+								fc := alu.cout;
+								flag_nz(alu.dout);
+							//	write(adrs, fc || data<7:1>); // dummy
+								ist := DACW;
+							}
+							accumulator : par{
+								ra := alu.ror1(ra, fc).dout;
+								fc := alu.cout;
+								flag_nz(alu.dout);
+								ist := 0b111;
+							}
+						}
+						ist==DACW : par{
+							write(adrs, data);
+							ist := 0b111;
+						}
+						ist==0b111 : nexti();
+					}
+
+					// BRK JSR RTI RTS JMP BIT PHA PHP PLA PLP
+					(ir<7>||ir<4>||ir<1>)==0b000 : any{ // 0--0_--00
+						I_BRK : any{ // 8clkÇ©ÇÁ7clkÇ…èCê≥ 2008/10/20
+							ist==0b000 : par{
+								pc_inc();
+								fb := 0b1;
+								ist := 0b001;
+							}
+							ist==0b001 : par{
+								stack_push(pch);
+								pch := 0xFF;
+								ist := 0b010;
+							}
+							ist==0b010 : par{
+								stack_push(pcl);
+								pcl := 0xFE;
+								ist := 0b011;
+							}
+							ist==0b011 : par{
+								stack_push(pstate);
+								fi := 0b1;
+								ir := 0x4C;	// JMP
+								ist := 0b000;
+							}
+						}
+						I_JSR : any{ // 6clk
+							ist==0b000 : par{
+								read(pc, READ_AL);
+								pc_inc();
+								ist := 0b001;
+							}
+							ist==0b001 : par{
+								read(pc, READ_AH);
+								// éëóøÇ…ÇÊÇ¡ÇƒÇ‹ÇøÇ‹ÇøÇæÇ™incÇ±Ç±Ç≈Ç∑ÇÈÇ∆É}ÉäÉIÇÃâÊñ Ç™èoÇ»Ç¢
+							//	pc_inc();
+								ist := 0b010;
+							}
+							ist==0b010 : par{
+								stack_push(pch);
+								pch := ah;
+								ist := 0b011;
+							}
+							ist==0b011 : par{
+								stack_push(pcl);
+								pcl := al;
+								ist := 0b100;
+							}
+							ist==0b100 : par{
+								ist := 0b111;
+							}
+							ist==0b111 : nexti();
+						}
+						I_RTI | I_RTS : any{ // 6clk
+							ist==0b000 : par{
+								stack_pop();
+								any{
+									I_RTI : ist := 0b001;
+									I_RTS : ist := 0b011;
+								}
+							}
+							ist==0b001 : par{
 								set_state(data);
+								ist := 0b010;
+							}
+							ist==0b010 : par{
+								stack_pop();
+								ist := 0b011;
+							}
+							ist==0b011 : par{
+								pcl := data;
+								ist := 0b100;
+							}
+							ist==0b100 : par{
+								stack_pop();
+								ist := 0b101;
+							}
+							ist==0b101 : par{
+								pch := data;
+								any{
+									I_RTI : ist := 0b111;
+									I_RTS : ist := 0b110;
+								}
+							}
+							ist==0b110 : par{
+								pc_inc();
+								ist := 0b111;
+							}
+							ist==0b111 : nexti();
+						}
+						I_JMP : any{
+							ist==0b000 : par{
+								read(pc, READ_AL);
+								pc_inc();
+								ist := 0b001;
+							}
+							ist==0b001 : par{
+								pcl := al;
+								read(pc, READ_PCH);
+								any{
+									ir<5>==0b0 : ist := 0b111;
+									ir<5>==0b1 : ist := 0b010;
+								}
+							}
+							ist==0b010 : par{
+								read(pc, READ_PCL);
+								ah := pch;
+								al := alu.add(al, 0x01, 0b0).dout; // adrs no carry
+								ist := 0b011;
+							}
+							ist==0b011 : par{
+								read(adrs, READ_PCH);
+								ist := 0b111;
+							}
+							ist==0b111 : nexti();
+						}
+						I_BIT : any{
+							ist<2>==0b0 : any{
+								ir<3>==0b0 : adrs_zeropage();
+								ir<3>==0b1 : adrs_absolute();
+							}
+							ist==DACS : par{
+								read(adrs, READ_DATA);
+								ist := EXEC;
+							}
+							ist==EXEC : par{
+								fv := data<6>;
+								fn := data<7>;
+								fz := ^(/|alu.and1(ra, data).dout);
+								nexti();
 							}
 						}
-						ist := 0b010;
+						// PHA PHP PLA PLP
+						ir<3:2>==0b10 : any{
+							ir<5>==0b0 : any{
+								ist==0b000 : par{
+									any{
+										I_PHA : stack_push(ra);
+										// PHP break flag is set.
+										I_PHP : stack_push(pstate<7:5> || 0b1 || pstate<3:0>);
+									}
+									ist := 0b001;
+								}
+								ist==0b001 : ist := 0b111;
+								ist==0b111 : nexti();
+							}
+							ir<5>==0b1 : any{
+								ist==0b000 : par{
+									stack_pop();
+									ist := 0b001;
+								}
+								ist==0b001 : par{
+									any{
+										I_PLA : par{
+											ra := data;
+											flag_nz(data);
+										}
+										I_PLP : par{
+											set_state(data);
+										}
+									}
+									ist := 0b010;
+								}
+								ist==0b010 : ist := 0b111;
+								ist==0b111 : nexti();
+							}
+						}
 					}
-					ist==0b010 : ist := 0b111;
-					ist==0b111 : nexti();
-				}
-			}
-		}
 
-		// CPX CPY
-		((ir<7:6>||ir<4>||ir<1>)==0b1100) & // 11-0_--00
-		((ir<3>==0b0)|(ir<3:2>==0b11)) : any{
-		//I_CPX | I_CPY : any{
-			ist<2>==0b0 : any{
-				ir<3:2>==0b00 : adrs_immediate();
-				ir<3:2>==0b11 : adrs_absolute();
-				ir<3:2>==0b01 : adrs_zeropage();
-			}
-			ist==DACS : par{
-				read(adrs, READ_DATA);
-				ist := EXEC;
-			}
-			ist==EXEC : par{
-				any{
-					I_CPX : compare(rx);
-					I_CPY : compare(ry);
-				}
-				nexti();
-			}
-		}
-
-		// DEC INC
-		// 4clkÇ©ÇÁ5clkÇ…èCê≥(ÉMÉÉÉâÉNÉVÉAÉì) 2008/10/20
-		(ir<7:6>||ir<2:1>)==0b1111 : any{
-			ist<2>==0b0 : any{
-				ir<4:3>==0b01 : adrs_absolute();
-				ir<4:3>==0b00 : adrs_zeropage();
-				ir<4:3>==0b10 : adrs_zeroindex(rx);
-				ir<4:3>==0b11 : adrs_absindex(rx);
-			}
-			ist==DACS : par{
-				read(adrs, READ_DATA);
-				ist := EXEC;
-			}
-			ist==EXEC : par{
-				any{
-					I_DEC : alu.sub(data, 0x01, 0b1);
-					I_INC : alu.add(data, 0x01, 0b0);
-				}
-				data := alu.dout;
-				flag_nz(alu.dout);
-			//	write(adrs, alu.dout); // dummy
-				ist := DACW;
-			}
-			ist==DACW : par{
-				write(adrs, data);
-				ist := 0b111;
-			}
-			ist==0b111 : nexti();
-		}
-
-		// LDX LDY STX STY
-		//ir<7:6>==0b10 : any{ // 10--_---0
-		I_LDX | I_LDY | I_STX | I_STY : any{
-			// LDX LDY
-			ir<5>==0b1 : any{
-				ist<2>==0b0 : any{
-					ir<4:2>==0b000 : adrs_immediate();
-					ir<4:2>==0b011 : adrs_absolute();
-					ir<4:2>==0b001 : adrs_zeropage();
-					ir<4:2>==0b101 : any{
-						I_LDX : adrs_zeroindex(ry);
-						I_LDY : adrs_zeroindex(rx);
-					}
-					ir<4:2>==0b111 : any{
-						I_LDX : adrs_absindex(ry);
-						I_LDY : adrs_absindex(rx);
-					}
-				}
-				ist==DACS : par{
-					read(adrs, READ_DATA);
-					ist := EXEC;
-				}
-				ist==EXEC : par{
-					any{
-						I_LDX : rx := data;
-						I_LDY : ry := data;
-					}
-					flag_nz(data);
-					nexti();
-				}
-			}
-
-			// STX STY
-		//	(ir<5>||ir<2>)==0b01 : any{
-			ir<5>==0b0 : any{
-				ist<2>==0b0 : any{
-					ir<4:3>==0b01 : adrs_absolute();
-					ir<4:3>==0b00 : adrs_zeropage();
-					ir<4:3>==0b10 : any{
-						ir<1>==0b0 : adrs_zeroindex(rx);
-						ir<1>==0b1 : adrs_zeroindex(ry);
-					}
-				}
-				ist==DACS : par{
-					any{
-						I_STX : write(adrs, rx);
-						I_STY : write(adrs, ry);
-					}
-					ist := EXEC;
-				}
-				ist==EXEC : nexti();
-			}
-		}
-
-		(ir<7>||ir<4:2>)==0b1010 : any{ // 1--0_10-0
-			I_TAX : any{
-				ist==0b000 : rx := ra;
-				ist==0b001 : flag_nz(ra);
-			}
-			I_TAY : any{
-				ist==0b000 : ry := ra;
-				ist==0b001 : flag_nz(ra);
-			}
-			I_TXA : any{
-				ist==0b000 : ra := rx;
-				ist==0b001 : flag_nz(rx);
-			}
-			I_DEX : any{
-				ist==0b000 : rx := alu.sub(rx, 0x01, 0b1).dout;
-				ist==0b001 : flag_nz(rx);
-			}
-			I_DEY : any{
-				ist==0b000 : ry := alu.sub(ry, 0x01, 0b1).dout;
-				ist==0b001 : flag_nz(ry);
-			}
-			I_NOP : ;
-			I_INX : any{
-				ist==0b000 : rx := alu.add(rx, 0x01, 0b0).dout;
-				ist==0b001 : flag_nz(rx);
-			}
-			I_INY : any{
-				ist==0b000 : ry := alu.add(ry, 0x01, 0b0).dout;
-				ist==0b001 : flag_nz(ry);
-			}
-			ist==0b000 : ist := 0b001;
-			ist==0b001 : nexti();
-		}
-
-		(ir<4>||ir<2>)==0b10 : any{ // ---1_-0-0
-			ir<3>==0b0 : any{
-				ist==0b000 : par{
-					read(pc, READ_DATA);
-					pc_inc();
-					ist := 0b001;
-				}
-				ist==0b001 : par{
-					sel branch_flag;
-					any{
-						I_BCC : branch_flag = ^fc;
-						I_BCS : branch_flag = fc;
-						I_BEQ : branch_flag = fz;
-						I_BMI : branch_flag = fn;
-						I_BNE : branch_flag = ^fz;
-						I_BPL : branch_flag = ^fn;
-						I_BVC : branch_flag = ^fv;
-						I_BVS : branch_flag = fv;
-					}
-					any{
-						branch_flag : par{
-							pcl := alu.add(pcl, data, 0b0).dout;
+					// CPX CPY
+					((ir<7:6>||ir<4>||ir<1>)==0b1100) & // 11-0_--00
+					((ir<3>==0b0)|(ir<3:2>==0b11)) : any{
+					//I_CPX | I_CPY : any{
+						ist<2>==0b0 : any{
+							ir<3:2>==0b00 : adrs_immediate();
+							ir<3:2>==0b11 : adrs_absolute();
+							ir<3:2>==0b01 : adrs_zeropage();
+						}
+						ist==DACS : par{
+							read(adrs, READ_DATA);
+							ist := EXEC;
+						}
+						ist==EXEC : par{
 							any{
-								data<7> @ alu.cout : ist := 0b010;
-								else : ist := 0b111;
+								I_CPX : compare(rx);
+								I_CPY : compare(ry);
+							}
+							nexti();
+						}
+					}
+
+					// DEC INC
+					// 4clkÇ©ÇÁ5clkÇ…èCê≥(ÉMÉÉÉâÉNÉVÉAÉì) 2008/10/20
+					(ir<7:6>||ir<2:1>)==0b1111 : any{
+						ist<2>==0b0 : any{
+							ir<4:3>==0b01 : adrs_absolute();
+							ir<4:3>==0b00 : adrs_zeropage();
+							ir<4:3>==0b10 : adrs_zeroindex(rx);
+							ir<4:3>==0b11 : adrs_absindex(rx);
+						}
+						ist==DACS : par{
+							read(adrs, READ_DATA);
+							ist := EXEC;
+						}
+						ist==EXEC : par{
+							any{
+								I_DEC : alu.sub(data, 0x01, 0b1);
+								I_INC : alu.add(data, 0x01, 0b0);
+							}
+							data := alu.dout;
+							flag_nz(alu.dout);
+						//	write(adrs, alu.dout); // dummy
+							ist := DACW;
+						}
+						ist==DACW : par{
+							write(adrs, data);
+							ist := 0b111;
+						}
+						ist==0b111 : nexti();
+					}
+
+					// LDX LDY STX STY
+					//ir<7:6>==0b10 : any{ // 10--_---0
+					I_LDX | I_LDY | I_STX | I_STY : any{
+						// LDX LDY
+						ir<5>==0b1 : any{
+							ist<2>==0b0 : any{
+								ir<4:2>==0b000 : adrs_immediate();
+								ir<4:2>==0b011 : adrs_absolute();
+								ir<4:2>==0b001 : adrs_zeropage();
+								ir<4:2>==0b101 : any{
+									I_LDX : adrs_zeroindex(ry);
+									I_LDY : adrs_zeroindex(rx);
+								}
+								ir<4:2>==0b111 : any{
+									I_LDX : adrs_absindex(ry);
+									I_LDY : adrs_absindex(rx);
+								}
+							}
+							ist==DACS : par{
+								read(adrs, READ_DATA);
+								ist := EXEC;
+							}
+							ist==EXEC : par{
+								any{
+									I_LDX : rx := data;
+									I_LDY : ry := data;
+								}
+								flag_nz(data);
+								nexti();
 							}
 						}
-						else : nexti();
-					}
-				}
-				ist==0b010 : par{
-					any{
-						data<7> : pch := alu.add(pch, 0xFF, 0b0).dout;
-						else    : pch := alu.add(pch, 0x01, 0b0).dout;
-					}
-					ist := 0b111;
-				}
-				ist==0b111 : nexti();
-			}
-			ir<3>==0b1 : any{
-				ist==0b000 : ist := 0b001;
-				ist==0b001 : par{
-					any{
-						I_CLC : fc := 0b0;
-						I_CLD : fd := 0b0;
-						I_CLI : fi := 0b0;
-						I_CLV : fv := 0b0;
-						I_SEC : fc := 0b1;
-						I_SED : fd := 0b1;
-						I_SEI : fi := 0b1;
-						I_TXS : sp := rx;
-						I_TYA : par{
-							ra := ry;
-							flag_nz(ry);
-						}
-						I_TSX : par{
-							rx := sp; // 2008/10/17 èCê≥(Dr.Mario)
-							flag_nz(sp);
+
+						// STX STY
+					//	(ir<5>||ir<2>)==0b01 : any{
+						ir<5>==0b0 : any{
+							ist<2>==0b0 : any{
+								ir<4:3>==0b01 : adrs_absolute();
+								ir<4:3>==0b00 : adrs_zeropage();
+								ir<4:3>==0b10 : any{
+									ir<1>==0b0 : adrs_zeroindex(rx);
+									ir<1>==0b1 : adrs_zeroindex(ry);
+								}
+							}
+							ist==DACS : par{
+								any{
+									I_STX : write(adrs, rx);
+									I_STY : write(adrs, ry);
+								}
+								ist := EXEC;
+							}
+							ist==EXEC : nexti();
 						}
 					}
-					nexti();
-				}
-			}
-		}
 
-		}	// ir<0>==0b0
+					(ir<7>||ir<4:2>)==0b1010 : any{ // 1--0_10-0
+						I_TAX : any{
+							ist==0b000 : rx := ra;
+							ist==0b001 : flag_nz(ra);
+						}
+						I_TAY : any{
+							ist==0b000 : ry := ra;
+							ist==0b001 : flag_nz(ra);
+						}
+						I_TXA : any{
+							ist==0b000 : ra := rx;
+							ist==0b001 : flag_nz(rx);
+						}
+						I_DEX : any{
+							ist==0b000 : rx := alu.sub(rx, 0x01, 0b1).dout;
+							ist==0b001 : flag_nz(rx);
+						}
+						I_DEY : any{
+							ist==0b000 : ry := alu.sub(ry, 0x01, 0b1).dout;
+							ist==0b001 : flag_nz(ry);
+						}
+						I_NOP : ;
+						I_INX : any{
+							ist==0b000 : rx := alu.add(rx, 0x01, 0b0).dout;
+							ist==0b001 : flag_nz(rx);
+						}
+						I_INY : any{
+							ist==0b000 : ry := alu.add(ry, 0x01, 0b0).dout;
+							ist==0b001 : flag_nz(ry);
+						}
+						ist==0b000 : ist := 0b001;
+						ist==0b001 : nexti();
+					}
 
-	}	// any
+					(ir<4>||ir<2>)==0b10 : any{ // ---1_-0-0
+						ir<3>==0b0 : any{
+							ist==0b000 : par{
+								read(pc, READ_DATA);
+								pc_inc();
+								ist := 0b001;
+							}
+							ist==0b001 : par{
+								sel branch_flag;
+								any{
+									I_BCC : branch_flag = ^fc;
+									I_BCS : branch_flag = fc;
+									I_BEQ : branch_flag = fz;
+									I_BMI : branch_flag = fn;
+									I_BNE : branch_flag = ^fz;
+									I_BPL : branch_flag = ^fn;
+									I_BVC : branch_flag = ^fv;
+									I_BVS : branch_flag = fv;
+								}
+								any{
+									branch_flag : par{
+										pcl := alu.add(pcl, data, 0b0).dout;
+										any{
+											data<7> @ alu.cout : ist := 0b010;
+											else : ist := 0b111;
+										}
+									}
+									else : nexti();
+								}
+							}
+							ist==0b010 : par{
+								any{
+									data<7> : pch := alu.add(pch, 0xFF, 0b0).dout;
+									else    : pch := alu.add(pch, 0x01, 0b0).dout;
+								}
+								ist := 0b111;
+							}
+							ist==0b111 : nexti();
+						}
+						ir<3>==0b1 : any{
+							ist==0b000 : ist := 0b001;
+							ist==0b001 : par{
+								any{
+									I_CLC : fc := 0b0;
+									I_CLD : fd := 0b0;
+									I_CLI : fi := 0b0;
+									I_CLV : fv := 0b0;
+									I_SEC : fc := 0b1;
+									I_SED : fd := 0b1;
+									I_SEI : fi := 0b1;
+									I_TXS : sp := rx;
+									I_TYA : par{
+										ra := ry;
+										flag_nz(ry);
+									}
+									I_TSX : par{
+										rx := sp; // 2008/10/17 èCê≥(Dr.Mario)
+										flag_nz(sp);
+									}
+								}
+								nexti();
+							}
+						}
+					}
+				} // ir<0>==0b0
+			} // any
 
 /*
 // ñ¢íËã`ñΩóﬂ
-	if(
-		(ir<1:0>==0b11)|
-		((ir<7>||ir<3:1>)==0b0001)|
-		((ir<6>||ir<4>||ir<2:0>)==0b11100)|
-		((ir<6>||ir<4>||ir<2:0>)==0b11010)|
-		((ir<6>||ir<3:1>)==0b1001)|
-		(ir<5:1>==0b11001)|
-		((ir<5>||ir<3:1>)==0b0001)|
-		((ir<7:2>||ir<0>)==0b1000000)|
-		(ir==0b10001001)|
-		((ir<7:5>||ir<2:0>)==0b000100)|
-		((ir<7:2>||ir<0>)==0b1001110)|
-		((ir<7>||ir<5:4>||ir<2:0>)==0b011100)|
-		((ir<7>||ir<4>||ir<2:1>)==0b0101)|
-		((ir<7:6>||ir<3:0>)==0b010100) ){
-		halt := 0b1;
-	}
+			if(
+				(ir<1:0>==0b11)|
+				((ir<7>||ir<3:1>)==0b0001)|
+				((ir<6>||ir<4>||ir<2:0>)==0b11100)|
+				((ir<6>||ir<4>||ir<2:0>)==0b11010)|
+				((ir<6>||ir<3:1>)==0b1001)|
+				(ir<5:1>==0b11001)|
+				((ir<5>||ir<3:1>)==0b0001)|
+				((ir<7:2>||ir<0>)==0b1000000)|
+				(ir==0b10001001)|
+				((ir<7:5>||ir<2:0>)==0b000100)|
+				((ir<7:2>||ir<0>)==0b1001110)|
+				((ir<7>||ir<5:4>||ir<2:0>)==0b011100)|
+				((ir<7>||ir<4>||ir<2:1>)==0b0101)|
+				((ir<7:6>||ir<3:0>)==0b010100) ){
+				halt := 0b1;
+			}
 */
 
-}
-}	// stage execute
+		} // par
+	} // stage execute
 
 	stage read_wait {
 		if(read_ack){

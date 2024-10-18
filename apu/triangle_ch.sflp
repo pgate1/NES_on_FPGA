@@ -21,7 +21,7 @@ circuit triangle_ch
 	output f_length, volume<4>;
 
 	reg_wr enable;
-	reg_wr period_high<3>, period_low<8>;
+	reg period_high<3>, period_low<8>;
 
 	timer_unit timer;
 
@@ -36,7 +36,7 @@ circuit triangle_ch
 	reg_wr tri_vol<5>;
 
 	instrout note_on, tim_out;
-	reg_wr old_period<11>;
+	reg old_period<11>;
 
 	stage_name length_set { task do(); }
 	stage_name LinearCounter { task do(); }

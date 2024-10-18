@@ -45,14 +45,14 @@ circuit Mapper073
 
 	input fMirroringType;
 
-	reg_wr prg_bank<3>;
+	reg prg_bank<3>;
 
 	instrself map_rom, map_exram;
 	reg_ws IRQn_reg;
 
-	reg_wr irq_enable;
-	reg_wr irq_counter_HH<4>, irq_counter_HL<4>;
-	reg_wr irq_counter_LH<4>, irq_counter_LL<4>;
+	reg irq_enable;
+	reg irq_counter_HH<4>, irq_counter_HL<4>;
+	reg irq_counter_LH<4>, irq_counter_LL<4>;
 
 	par{
 		if(ROM_SELn==0b0){

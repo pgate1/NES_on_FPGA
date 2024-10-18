@@ -13,7 +13,7 @@ circuit timer_unit
 	instrin exc, rst;
 	instrout clock_out;
 	reg_wr rst_tim;
-	reg_wr timer_div<12>;
+	reg timer_div<12>;
 
 	stage_name Timer { task do(); }
 

@@ -3,7 +3,7 @@ circuit segtim
 {
 	instrin run;
 	reg_wr count<7>;
-	reg_wr seg<7>;
+	reg seg<7>;
 	output oSEG<7>;
 
 	stage_name light { task do(); }

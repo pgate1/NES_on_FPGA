@@ -5,7 +5,7 @@ circuit nsf_init_rom
 	input adrs<8>, din<8>;
 	output dout<8>;
 
-	reg_wr dout_reg<8>;
+	reg dout_reg<8>;
 
 	mem cells[256]<8> = {
 	0x78,             // SEI

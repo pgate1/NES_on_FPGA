@@ -38,7 +38,7 @@ circuit Mapper003
 	instrin init;
 	input fMirroringType;
 
-	reg_wr chr_bank<2>;
+	reg chr_bank<2>;
 
 	par{
 

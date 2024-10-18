@@ -34,16 +34,16 @@ circuit apu_core
 
 	input f_stereo, mute<5>;
 	output sound_L<8>, sound_R<8>;
-	reg_wr sound_L_reg<8>, sound_R_reg<8>;
+	reg sound_L_reg<8>, sound_R_reg<8>;
 	input f_volume_boost<5>;
 	output volume_boost<8>;
-	reg_wr volume_boost_reg<8>;
+	reg volume_boost_reg<8>;
 
 	instrout sq1_note_on, sq2_note_on, tri_note_on, noi_note_on, dmc_note_on;
 	instrout sq1_tim, sq2_tim, tri_tim, noi_tim;
 
 	reg_ws reset;
-	reg_wr dout_reg<8>;
+	reg dout_reg<8>;
 
 	// Length Counter Table
 	length_rom len_max;
@@ -51,7 +51,7 @@ circuit apu_core
 //	reg_wr len_max_dout<8>;
 
 	// Frame Sequencer
-	reg_wr frame_ls<5>;
+	reg frame_ls<5>;
 	reg_wr f_frame_sequencer_mode;
 	reg_ws f_frame_IRQ_disable;
 	reg_ws frame_IRQn_reg;
@@ -294,7 +294,7 @@ Readしてしまう問題がある。解決方法としてはppmckの最新版を使用すること。
 	instruct noise.tim_out noi_tim();
 
 	stage FrameSequencer { // mpu.run + 1clk
-		reg_wr frame_div<13>;
+		reg frame_div<13>;
 		par{
 			finish;
 			if(frame_div!=0){

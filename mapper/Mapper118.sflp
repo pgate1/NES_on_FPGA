@@ -45,20 +45,20 @@ circuit Mapper118
 	instrin hblank;
 
 	input n16kRomBanks<6>, /*n8kVRomBanks<6>,*/ fMirroringType;
-	reg_wr fMirroringType_reg<2>;
+	reg fMirroringType_reg<2>;
 
-	reg_wr prg_bank0<6>, prg_bank1<6>, prg_last_bank<5>;
-	reg_wr chr_bank01<7>, chr_bank23<7>; // ‹ô”‚Ì‚İ
-	reg_wr chr_bank4<8>, chr_bank5<8>, chr_bank6<8>, chr_bank7<8>;
+	reg prg_bank0<6>, prg_bank1<6>, prg_last_bank<5>;
+	reg chr_bank01<7>, chr_bank23<7>; // ‹ô”‚Ì‚İ
+	reg chr_bank4<8>, chr_bank5<8>, chr_bank6<8>, chr_bank7<8>;
 
 	instrself map_rom, map_exram;
 
-	reg_wr prg_swap, chr_swap;
+	reg prg_swap, chr_swap;
 //	reg_wr fSaveRAMenable;
 	reg_ws IRQn_reg;
-	reg_wr command<3>;
+	reg command<3>;
 
-	reg_wr irq_counter<8>, irq_latch<8>, irq_enabled;
+	reg irq_counter<8>, irq_latch<8>, irq_enabled;
 
 	sel chr_read_bank<8>;
 	reg_wr vcount<8>;
@@ -139,9 +139,9 @@ circuit Mapper118
 	}
 
 	instruct init par{
-		chr_swap := 0;
-		prg_swap := 0;
 		command := 0;
+		prg_swap := 0;
+		chr_swap := 0;
 		prg_bank0 := 0b000000;
 		prg_bank1 := 0b000001;
 		prg_last_bank := (n16kRomBanks - 0b000001)<4:0>;
