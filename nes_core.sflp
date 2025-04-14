@@ -9,24 +9,24 @@
 circuit nes_core
 {
 	// PRG-ROM EXT-ROM EXT-RAM
-	output A<15>, ROM_SELn, RW, prg_RW, Phi2;
-	reg A_reg<16>, Phi2_reg;
+	output prg_A<15>, ROM_SELn, RW, prg_RW, Phi2;
+	reg prg_A_reg<16>, Phi2_reg;
 	reg_ws RW_reg, prg_RW_reg;
 	input IRQn;
-	input prg_din<8>;
-	reg prg_din_reg<8>;
-	output prg_dout<8>;
+	input prg_Dout<8>;
+	reg prg_Dout_reg<8>;
+	output prg_Din<8>;
 	instrin prg_ack;
 
 	// CHR-ROM
-	output PA<14>, WEn, RDn, chr_RW;
-	reg PA_reg<14>;
+	output chr_PA<14>, WEn, RDn, chr_RW;
+	reg chr_PA_reg<14>;
 	reg_ws WEn_reg, RDn_reg, chr_RW_reg;
 
 	input VRAM_CSn, VRAM_A10;
-	input chr_din<8>;
-	reg chr_din_reg<8>;
-	output chr_dout<8>;
+	input chr_PDout<8>;
+	reg chr_PDout_reg<8>;
+	output chr_PDin<8>;
 	instrin chr_ack;
 
 	input pad1P<8>, pad2P<8>;
@@ -94,18 +94,18 @@ output ir_out<8>, pc_out<16>, ir_sync;
 	input speed, stop;
 output dbg<16>;
 
-	stage_name mpu_read { task do(A_reg); }
+	stage_name mpu_read { task do(prg_A_reg); }
 	stage_name io_read_wait { task do(); }
 	stage_name prg_read_stg { task do(); }
 	stage_name prg_read_ack_wait { task do(); }
-	stage_name mpu_write { task do(A_reg, mpu_dout_reg); }
+	stage_name mpu_write { task do(prg_A_reg, mpu_dout_reg); }
 	stage_name prg_write_stg { task do(); }
 	stage_name vram_read_stg { task do(); }
-	stage_name chr_read_stg { task do(PA_reg); }
-	stage_name chr_read_ack_wait { task do(PA_reg); }
+	stage_name chr_read_stg { task do(chr_PA_reg); }
+	stage_name chr_read_ack_wait { task do(chr_PA_reg); }
 	stage_name vram_write_stg { task do(); }
-	stage_name chr_write_stg { task do(PA_reg, ppu_PDout_reg); }
-	stage_name chr_write_ack_wait { task do(PA_reg, ppu_PDout_reg); }
+	stage_name chr_write_stg { task do(chr_PA_reg, ppu_PDout_reg); }
+	stage_name chr_write_ack_wait { task do(chr_PA_reg, ppu_PDout_reg); }
 	stage_name phi2_tim { task do(); }
 	stage_name dma_run { task do(); }
 	stage_name dma_read_wait { task do(); }
@@ -119,24 +119,24 @@ output dbg<16>;
 	}
 
 	any{
-		A_reg<15:13>==0b000 : par{ // 0x0000-0x07FF WRAM
+		prg_A_reg<15:13>==0b000 : par{ // 0x0000-0x07FF WRAM
 			map_wmem();
 		}
-		A_reg<15:13>==0b001 : par{ // 0x2000-0x2007 PPU
+		prg_A_reg<15:13>==0b001 : par{ // 0x2000-0x2007 PPU
 			map_ppu();
 		}
-		A_reg<15:13>==0b010 : any{
-			A_reg<12:5>==0b00000000 : par{ // 0x4000-0x401F APU, PAD
+		prg_A_reg<15:13>==0b010 : any{
+			prg_A_reg<12:5>==0b00000000 : par{ // 0x4000-0x401F APU, PAD
 				map_apu();
 			}
 			else : par{ // 0x4020-0x5FFF ExROM
 				map_nesrom();
 			}
 		}
-		A_reg<15:13>==0b011 : par{ // 0x6000-0x7FFF ExRAM
+		prg_A_reg<15:13>==0b011 : par{ // 0x6000-0x7FFF ExRAM
 			map_nesrom();
 		}
-		A_reg<15> : par{ // 0x8000-0xFFFF ROM
+		prg_A_reg<15> : par{ // 0x8000-0xFFFF ROM
 			map_nesrom();
 		}
 	}
@@ -146,30 +146,32 @@ output dbg<16>;
 		map_ppu  : mpu.din = ppu.Dout;
 		map_apu  : mpu.din = io_reg;
 		map_nesrom : par{
-			if(f_real_cartridge) mpu.din = prg_din_reg;
-			else mpu.din = prg_din;
+			if(f_real_cartridge) mpu.din = prg_Dout_reg;
+			else mpu.din = prg_Dout;
 		}
 	}
 
-	A = A_reg<14:0>;
-	ROM_SELn = ^A_reg<15>;
+	prg_A = prg_A_reg<14:0>;
+	ROM_SELn = ^prg_A_reg<15>;
 	RW = RW_reg;
 	prg_RW = prg_RW_reg;
-	prg_dout = mpu_dout_reg;
+	prg_Din = mpu_dout_reg;
 	Phi2 = Phi2_reg;
 
-	if(^f_25MHz) PA = PA_reg;
-	if(f_25MHz) PA = ppu.PA;
+//	if(^f_25MHz) chr_PA = chr_PA_reg;
+//	if(f_25MHz) chr_PA = ppu.PA;
+	chr_PA = ppu.PA;
 	WEn = WEn_reg;
 	RDn = RDn_reg;
 	chr_RW = chr_RW_reg;
 	if(VRAM_CSn==0b0) ppu.PDin = vmem.dout;
 	else{
-		if(f_real_cartridge) ppu.PDin = chr_din_reg;
-		else ppu.PDin = chr_din;
+		if(f_real_cartridge) ppu.PDin = chr_PDout_reg;
+		else ppu.PDin = chr_PDout;
 	}
-	if(^f_25MHz) chr_dout = ppu_PDout_reg;
-	if(f_25MHz) chr_dout = ppu.PDout;
+//	if(^f_25MHz) chr_PDin = ppu_PDout_reg;
+//	if(f_25MHz) chr_PDin = ppu.PDout;
+	chr_PDin = ppu.PDout;
 
 	apu.f_stereo = f_stereo;
 	apu.dpcm_7bit = 0b1;
@@ -324,31 +326,33 @@ output dbg<16>;
 		par{
 			any{
 				map_wmem : par{
-					wmem.read(A_reg<10:0>);
+					wmem.read(prg_A_reg<10:0>);
 					generate io_read_wait.do();
 				}
 				map_ppu : par{
-					ppu.read_io(A_reg<2:0>);
+					ppu.read_io(prg_A_reg<2:0>);
 					generate io_read_wait.do();
 				}
 				map_apu : par{
 					any{
-						A_reg<4:0>==0b10110 : par{ // 0x4016
+						prg_A_reg<4:0>==0b10110 : par{ // 0x4016
 							io_reg := 0b0000000 || pad1_data<0>;
 							pad1_data := 0b0 || pad1_data<7:1>;
 						}
-						A_reg<4:0>==0b10111 : par{ // 0x4017
+						prg_A_reg<4:0>==0b10111 : par{ // 0x4017
 							io_reg := 0b0000000 || pad2_data<0>;
 							pad2_data := 0b0 || pad2_data<7:1>;
 						}
-						else : io_reg := apu.read_io(A_reg<4:0>).dout;
+						else : io_reg := apu.read_io(prg_A_reg<4:0>).dout;
 					}
 					generate io_read_wait.do();
 				}
 				map_nesrom : par{
-				//	generate prg_read_stg.do();
-					generate prg_read_ack_wait.do();
-					read_prg();
+					if(f_real_cartridge) ;//generate prg_read_stg.do();
+					else{
+						generate prg_read_ack_wait.do();
+						read_prg();
+					}
 				}
 			}
 			if(f_real_cartridge) generate prg_read_stg.do();
@@ -382,7 +386,7 @@ output dbg<16>;
 			if(prg_count==16) goto st3;
 		}
 		state st3 par{
-			prg_din_reg := prg_din;
+			prg_Dout_reg := prg_Dout;
 			goto st4;
 		}
 		state st4 par{
@@ -392,6 +396,7 @@ output dbg<16>;
 		}
 	}
 
+	// Mapper用
 	stage prg_read_ack_wait {
 		if(prg_ack | ready){
 			mpu.read_ack();
@@ -403,26 +408,29 @@ output dbg<16>;
 		par{
 			any{
 				map_wmem : par{
-					wmem.write(A_reg<10:0>, mpu_dout_reg);
+					wmem.write(prg_A_reg<10:0>, mpu_dout_reg);
 				}
 				map_ppu : par{
-					ppu.write_io(A_reg<2:0>, mpu_dout_reg);
+					ppu.write_io(prg_A_reg<2:0>, mpu_dout_reg);
 				}
 				map_apu : any{
-					A_reg<4:0>==0b10100 : par{ // 0x4014
+					prg_A_reg<4:0>==0b10100 : par{ // 0x4014
 						f_dma := 0b1;
 					}
-					A_reg<4:0>==0b10110 : par{ // 0x4016
+					prg_A_reg<4:0>==0b10110 : par{ // 0x4016
 						pad1_data := pad1P;
 						pad2_data := pad2P;
 					}
-					else : apu.write_io(A_reg<4:0>, mpu_dout_reg);
+					else : apu.write_io(prg_A_reg<4:0>, mpu_dout_reg);
 				}
 				map_nesrom : par{
-					// ミネルバトンサーガ用(カセットへのセーブしないように)
-					//if(A_reg<15:4>==0x7EF) mapperで処理してるか要確認
-				//	generate prg_write_stg.do();
-					write_prg();
+					if(f_real_cartridge);// generate prg_write_stg.do();
+					else{
+						// ミネルバトンサーガ用(カセットへのセーブしないように)
+						//if(A_reg<15:4>==0x7EF) mapperで処理してるか要確認
+					//	generate prg_write_stg.do();
+						write_prg();
+					}
 				}
 			}
 			if(f_real_cartridge) generate prg_write_stg.do();
@@ -502,6 +510,7 @@ output dbg<16>;
 		}
 	}
 
+	// カートリッジ用
 	// リターンバック 7 + 10.5 = 17.5ns
 	stage vram_read_stg {
 		first_state st1;
@@ -510,7 +519,7 @@ output dbg<16>;
 		state st3 goto st4;	// リターンバック信号待ち3
 		state st4 par{
 			if(VRAM_CSn==0b0){
-				vmem.read(VRAM_A10 || PA_reg<9:0>);
+				vmem.read(VRAM_A10 || chr_PA_reg<9:0>);
 			}
 			goto st1;
 			finish;
@@ -541,7 +550,7 @@ output dbg<16>;
 			if(chr_count==8) goto st5;
 		}
 		state st5 par{
-			chr_din_reg := chr_din;
+			chr_PDout_reg := chr_PDout;
 			goto st6;
 		}
 		state st6 par{
@@ -552,12 +561,13 @@ output dbg<16>;
 		}
 	}
 
+	// Mapper用
 	stage chr_read_ack_wait {
 		first_state st1;
 		state st1 par{
 			if(^f_25MHz){
 				if(VRAM_CSn==0b0){
-					vmem.read(VRAM_A10 || PA_reg<9:0>);
+					vmem.read(VRAM_A10 || chr_PA_reg<9:0>);
 				}
 				else read_chr(); // for Mappers
 			}
@@ -570,6 +580,7 @@ output dbg<16>;
 		}
 	}
 
+	// カートリッジ用
 	stage vram_write_stg {
 		first_state st1;
 		state st1 goto st2;	// リターンバック信号待ち1
@@ -577,7 +588,7 @@ output dbg<16>;
 		state st3 goto st4;	// リターンバック信号待ち3
 		state st4 par{
 			if(VRAM_CSn==0b0){
-				vmem.write(VRAM_A10 || PA_reg<9:0>, ppu_PDout_reg);
+				vmem.write(VRAM_A10 || chr_PA_reg<9:0>, ppu_PDout_reg);
 			}
 			goto st1;
 			finish;
@@ -620,10 +631,11 @@ output dbg<16>;
 		}
 	}
 
+	// Mapper用
 	stage chr_write_ack_wait {
 		par{
 			if(VRAM_CSn==0b0){
-				vmem.write(VRAM_A10 || PA_reg<9:0>, ppu_PDout_reg);
+				vmem.write(VRAM_A10 || chr_PA_reg<9:0>, ppu_PDout_reg);
 			}
 			else write_chr(); // for Mappers
 			finish;

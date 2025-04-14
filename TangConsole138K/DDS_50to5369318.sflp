@@ -1,0 +1,29 @@
+/*
+ 50MHzから5369318Hzを生成する
+ カウンタ 19bit、加算値 16837、最大値 156789、誤差 +0.0006250441
+*/
+
+%d COUNT_WIDTH 19
+
+circuit DDS_50to5369318
+{
+	instrout run;
+
+	sel add<COUNT_WIDTH>;
+	sel max<COUNT_WIDTH>;
+	reg_wr count<COUNT_WIDTH>;
+	sel sa<COUNT_WIDTH>;
+
+	add = 16837;
+	max = 156789;
+
+	sa = count - max;
+
+	if(sa<COUNT_WIDTH-1>){ // count < max
+		count += add;
+	}
+	else{
+		count := sa + add;
+		run();
+	}
+}

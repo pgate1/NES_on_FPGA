@@ -13,7 +13,9 @@
 `include "ram_8x512.v"
 
 /* Display */
-`include "ram_16x256.v"
+`include "ram_9x256.v"
+`include "ram_12x256.v"
+`include "ram_15x256.v"
 
 /* Cartridge ExRAM */
 `include "ram_8x8k.v"

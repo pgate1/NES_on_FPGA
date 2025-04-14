@@ -5,7 +5,7 @@
 circuit rgb_rom_5
 {
 	input adrs<6>;
-	output dout<16>;
+	output dout<15>;
 	instrin read(adrs);
 
 	mem cells[64]<16> = {
@@ -22,5 +22,5 @@ circuit rgb_rom_5
 	reg dout_reg<16>;
 
 	instruct read dout_reg := cells[adrs];
-	dout = dout_reg;
+	dout = dout_reg<14:0>;
 }

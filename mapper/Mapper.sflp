@@ -65,7 +65,7 @@ circuit Mapper
 	instrin Phi; // 1.789MHz
 	instrin clock1789k, clock3580k;
 
-	reg_wr mapper_id<8>;
+	reg_ws mapper_id<8>;
 
 	input mapper_enable<256>;
 	output supported;
@@ -163,7 +163,7 @@ output dbg<16>;
 	output f_nes;
 
 	instrin set_type(set_Din), soft_reset;
-	reg map_type<8>;
+	reg_wr map_type<8>;
 	instrin attach(set_Din);
 	input set_Din<8>;
 	output ack, set_ok;
@@ -608,6 +608,11 @@ dbg = mapper_nsf.dbg;
 			VRAM_CSn = mapper_118.VRAM_CSn;
 			VRAM_A10 = mapper_118.VRAM_A10;
 		}
+		case 255: par{ // real cartridge
+			IRQn = 0b1;
+			VRAM_CSn = 0b1;
+			VRAM_A10 = 0b0;
+		}
 	}
 
 	f_nsf = mapper_id==0x0C;
@@ -788,7 +793,7 @@ dbg = mapper_nsf.dbg;
 #endif
 #ifdef Map002
 	instruct mapper_002.prg_rom_read par{
-		prg_rom_read(0b00||mapper_002.prg_rom_adrs);
+		prg_rom_read(0b0||mapper_002.prg_rom_adrs);
 	}
 	instruct mapper_002.chr_ram_read par{
 		chr_ram_read(0b00000||mapper_002.chr_ram_adrs);

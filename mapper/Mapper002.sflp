@@ -2,7 +2,7 @@
 /*
 	Mapper 002
 	PRGマッパー
-		PRG-ROM 16KB × 8 or 16
+		PRG-ROM 16KB × 8 or 16 (or 32)
 		CHR-RAM 8KB
 */
 
@@ -28,7 +28,8 @@ circuit Mapper002
 
 	// 外部RAMへのアクセス
 	instrout prg_rom_read(prg_rom_adrs);
-	output prg_rom_adrs<18>; // PRG_ROM 256KBまで
+//	output prg_rom_adrs<18>; // PRG_ROM 256KBまで
+	output prg_rom_adrs<19>; // PRG_ROM 512KBまで
 	input prg_rom_rdata<8>;
 
 	instrout chr_ram_read(chr_ram_adrs);
@@ -38,7 +39,7 @@ circuit Mapper002
 	input chr_ram_rdata<8>;
 
 	input n16kRomBanks<6>, fMirroringType;
-	reg prg_bank<4>;
+	reg prg_bank<5>;
 
 	par{
 
@@ -75,16 +76,17 @@ circuit Mapper002
 	instruct prg_read par{
 		if(ROM_SELn==0b0){
 			if(prg_A<14>==0b0) prg_rom_read(prg_bank || prg_A<13:0>);
-			else switch(n16kRomBanks<4>){
-				case 0b0: prg_rom_read(0b0111 || prg_A<13:0>); //  8 banks
-				case 0b1: prg_rom_read(0b1111 || prg_A<13:0>); // 16 banks
+			else switch(n16kRomBanks<5:4>){
+				case 0b00: prg_rom_read(0b00111 || prg_A<13:0>); //  8 banks
+				case 0b01: prg_rom_read(0b01111 || prg_A<13:0>); // 16 banks
+				case 0b10: prg_rom_read(0b11111 || prg_A<13:0>); // 32 banks
 			}
 		}
 	}
 
 	instruct prg_write par{
 		if(ROM_SELn==0b0){
-			prg_bank := prg_Din<3:0>;
+			prg_bank := prg_Din<4:0>;
 		}
 	}
 

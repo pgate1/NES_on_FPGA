@@ -57,7 +57,7 @@ circuit MapperDummy
 		}
 
 		prg_Dout = 0x00;
-		VRAM_CSn = 0b0;
+		VRAM_CSn = 0b1;
 		VRAM_A10 = 0b0;
 		chr_Dout = 0x00;
 

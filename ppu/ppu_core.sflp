@@ -655,7 +655,7 @@ if(^hhh) halt(0x45);
 
 	// BG SPR •`‰æ
 	stage BG_DRAW {
-		sela spr_col[8]<5>;
+		sels spr_col[8]<5>;
 		sel spr_mcol<5>, bg_col_low<2>, zero_hit;
 		sel spr_face<4>, bg_face<4>, pal_adrs<5>;
 		reg dsc_set_reg, clip_x<8>;

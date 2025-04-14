@@ -1,0 +1,19 @@
+
+// RAM
+// 12 bit 256 depth
+
+circuit ram_12x256
+{
+	input adrs<8>, din<12>;
+	output dout<12>;
+	instrin read(adrs);
+	instrin write(adrs, din);
+
+	mem cells[256]<12>;
+	reg dout_reg<12>;
+
+	instruct read dout_reg := cells[adrs];
+	dout = dout_reg;
+
+	instruct write cells[adrs] := din;
+}

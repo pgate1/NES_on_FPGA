@@ -1,0 +1,19 @@
+
+// RAM
+// 9 bit 256 depth
+
+circuit ram_9x256
+{
+	input adrs<8>, din<9>;
+	output dout<9>;
+	instrin read(adrs);
+	instrin write(adrs, din);
+
+	mem cells[256]<9>;
+	reg dout_reg<9>;
+
+	instruct read dout_reg := cells[adrs];
+	dout = dout_reg;
+
+	instruct write cells[adrs] := din;
+}
