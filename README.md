@@ -1,17 +1,17 @@
 # NES on FPGA
 
-Implemented NES on an FPGA.   
-The hardware discription language is original expanded SFL+.  
-(<a href=https://pgate1.at-ninja.jp/memo/SFLP/>Beginning SFL+</a>)
-<!--
+Implemented NES on an FPGA. 
+
+The hardware discription language is original expanded SFL+. (<a href=https://pgate1.at-ninja.jp/memo/SFLP/>Beginning SFL+</a>)  
 (<a href=http://www-lab09.kuee.kyoto-u.ac.jp/parthenon/NTT/English/Tutorial/tutorial.htm>SFL: Structured Function description Language Tutorial</a>)
--->
 
 FPGA data is available at:  
-https://pgate1.at-ninja.jp/NES_on_FPGA/index.html#release  
+https://pgate1.at-ninja.jp/NES_on_FPGA/index.html#release
 
 <img width=500 src=https://pgate1.at-ninja.jp/NES_on_FPGA/nes2_top.jpg>
 
+feat. Pocket  
 <img width=500 src=https://pgate1.at-ninja.jp/NES_on_FPGA/release/NESonFPGAfeatPocket.jpg>
 
+feat. TangConsole138K  
 <img width=500 src=https://pgate1.at-ninja.jp/NES_on_FPGA/release/NESonFPGAfeatTangConsole138K.jpg>
