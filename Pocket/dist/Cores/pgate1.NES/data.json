@@ -1,0 +1,17 @@
+{
+    "data": {
+        "magic": "APF_VER_1",
+        "data_slots": [
+				{
+					"name": "ROM",
+					"id": "0x00",
+					"required": true,
+					"parameters": "0x008",
+					"deferload": true,
+					"extensions": ["nes"],
+					"size_maximum": "0x00200000",
+					"address": "0x00080000"
+				}
+		]
+    }
+}

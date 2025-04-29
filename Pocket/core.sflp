@@ -1,0 +1,364 @@
+
+/*
+	NES on FPGA feat. Pocket
+	Copyright 2025 pgate1
+*/
+
+%i "../nes_core.h"
+%i "../mapper/Mapper.h"
+%i "Display_5.h"
+%i "VGA_ctrl.h"
+%i "DDS_50to5369318.h"
+
+declare Mapper_enable interface { output enable<256>; }
+
+%i "../mem/ram_8x256k.h"
+
+circuit core
+{
+	input key<16>;
+//--------------------- SDRAM Interface --------------------
+	instrout sdram_write(sdram_adrs, sdram_wdata, sdram_enable);
+	output sdram_adrs<24>, sdram_wdata<32>, sdram_enable<4>;
+	instrout sdram_read(sdram_adrs);
+	input sdram_rdata<32>, sdram_ack_100;
+	reg sdram_ack;
+//--------------------- VGA --------------------------------
+	VGA_ctrl vga;
+	output VGA_HS, VGA_VS, VGA_DE;
+	output VGA_R<8>, VGA_G<8>, VGA_B<8>;
+	reg_wr VGA_R_reg<8>, VGA_G_reg<8>, VGA_B_reg<8>;
+	Display_5 dis;
+	reg_ws dis_timing;
+//--------------------- Audio --------------------------------
+	output Sound_L<16>, Sound_R<16>;
+//----------------------------------------------------------
+	output set_sdram; reg_wr set_sdram_reg;
+	output set_bram; reg_wr set_bram_reg;
+	output target_id<16>; reg_wr target_id_reg<16>;
+	output target_slotoffset<32>; reg_wr target_slotoffset_reg<32>;
+	output target_bridgeaddr<32>; reg_wr target_bridgeaddr_reg<32>;
+	output target_length<32>; reg_wr target_length_reg<32>;
+	input bram_word_wr, bram_wdata<32>;
+	input target_dataslot_read, ram_reloading;
+
+//	input file_size<32>;
+//----------------------------------------------------------
+
+	reg_ws reset;
+
+	// NES
+	nes_core nes;
+	Mapper cart;
+	Mapper_enable mapper_enable;
+
+	ram_8x256k chr_ram;
+
+	DDS_50to5369318 dds_ntsc;
+
+	reg_wr prg_read_ok;
+
+	instrself halt(halt_sel);
+	sel halt_sel<8>;
+	reg_wr halt_code<8>;
+
+	stage_name apf2sdram { task do(target_id_reg, target_slotoffset_reg, target_bridgeaddr_reg, target_length_reg); }
+	stage_name apf2bram { task do(target_id_reg, target_slotoffset_reg, target_length_reg); }
+
+	stage_name nes_line { task do(); }
+	stage_name clock3580k { task do(); }
+	stage_name card2ram { task do(); }
+//	stage_name vjtag2ram { task do(); }
+	stage_name check_sum { task do(); }
+
+	if(reset){
+		generate apf2sdram.do(0x0000, 0, 0x01000000, 0xFFFFFFFF); // .nes
+		generate card2ram.do();
+		reset := 0b0;
+	}
+
+	instruct halt halt_code := halt_sel;
+
+	sdram_ack := sdram_ack_100;
+
+	set_sdram = set_sdram_reg;
+	set_bram = set_bram_reg;
+	target_id = target_id_reg;
+	target_slotoffset = target_slotoffset_reg;
+	target_bridgeaddr = target_bridgeaddr_reg;
+	target_length = target_length_reg;
+
+reg_wr apf2sdram_ok;
+
+	vga.vt_su = 2;
+	vga.vt_vu = 2 + 33;
+	vga.vt_nu = 2 + 33 + 16 - 2;
+	vga.vt_nd = 2 + 33 + 480 - 16 - 2;
+	vga.vt_vd = 2 + 33 + 480;
+	vga.vt_sd = 525 - 1;
+	vga.ht_su = 80;
+	vga.ht_vu = 80 + 20;
+	vga.ht_nu = 80 + 20;
+	vga.ht_nd = 80 + 20 + 512;
+	vga.ht_vd = 80 + 20 + 512;
+	vga.ht_sd = 794 - 1;
+	alt{
+		vga.win_valid : par{
+			VGA_R_reg := dis.r_out || dis.r_out<4:2>;
+			VGA_G_reg := dis.g_out || dis.g_out<4:2>;
+			VGA_B_reg := dis.b_out || dis.b_out<4:2>;
+		}
+		vga.view_valid : par{
+			// NES画面外の色（ディスプレイ自動幅調整のため）
+			if(apf2sdram_ok){//prg_read_ok){
+				VGA_R_reg := 0x10;
+				VGA_G_reg := 0x10;
+				VGA_B_reg := 0x10;
+			}
+			else{
+				VGA_R_reg := 1;
+				VGA_G_reg := 1;
+				VGA_B_reg := 0x40;
+			}
+		}
+		else : par{
+			VGA_R_reg := 0;
+			VGA_G_reg := 0;
+			VGA_B_reg := 0;
+		}
+	}
+	reg_wr VGA_DE_reg, VGA_HS_reg, VGA_VS_reg;
+	VGA_DE_reg := vga.view_valid; VGA_DE = VGA_DE_reg;
+	VGA_HS_reg := vga.hsync; VGA_HS = VGA_HS_reg;
+	VGA_VS_reg := vga.vsync; VGA_VS = VGA_VS_reg;
+	VGA_R = VGA_R_reg;
+	VGA_G = VGA_G_reg;
+	VGA_B = VGA_B_reg;
+
+	// NESPAD : 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
+	nes.pad1P = (key<3> || key<2> || key<1> || key<0> || key<15> || key<14> || (key<5> | key<6>) || (key<4> | key<7>));
+	nes.pad2P = 0x00;
+
+	// ソフトリセット
+	if(nes.pad1P<3:2>==0b11){
+		nes.soft_reset();
+		cart.soft_reset();
+	}
+
+	nes.f_real_cartridge = 0b0;
+	nes.IRQn = cart.IRQn;
+	nes.VRAM_CSn = cart.VRAM_CSn;
+	nes.VRAM_A10 = cart.VRAM_A10;
+	if(^prg_read_ok) nes.ready();
+
+//	nes.f_stereo = ^SW<0>;
+//	nes.speed = SW<2>;
+//	nes.stop  = 0b0;
+	nes.f_nsf = cart.f_nsf;
+	instruct cart.NMI_out nes.nsf_NMI();
+
+	cart.mapper_enable = mapper_enable.enable;
+
+	if(^prg_read_ok) cart.ready();
+//	if(nes.Phi2) cart.Phi();
+	instruct nes.clk_out cart.Phi();
+
+	reg_wr cnt_1MHz<6>;
+	if(cnt_1MHz==50){
+		cart.tim1MHz();
+		cnt_1MHz := 1;
+	}
+	else cnt_1MHz++;
+
+//	cart.fat_eof = fat.eof;
+
+	cart.mute = 0b0000001; // VRC7 omit
+	cart.nes_sound_L = nes.sound_L;
+	cart.nes_sound_R = nes.sound_R;
+	nes.f_volume_boost = 0b00100; // 三角波をブースト
+	cart.nes_volume_boost = nes.volume_boost;
+	Sound_L = cart.sound_L<13:0> || 0b00;
+	Sound_R = -(cart.sound_R<13:0> || 0b00);
+
+	cart.ROM_SELn = nes.ROM_SELn;
+	cart.prg_A = nes.prg_A;
+	instruct nes.read_prg cart.prg_read();
+	nes.prg_Dout = cart.prg_Dout;
+	instruct cart.prg_ack nes.prg_ack();
+
+	cart.prg_Din = nes.prg_Din;
+	instruct nes.write_prg cart.prg_write();
+
+	cart.chr_A = nes.chr_PA;
+	instruct nes.read_chr par{
+		// romセット時にchr_rom読み込み防止
+		if(prg_read_ok) cart.chr_read();
+	}
+	nes.chr_PDout = cart.chr_Dout;
+	instruct cart.chr_ack nes.chr_ack();
+
+	cart.chr_Din = nes.chr_PDin;
+	instruct nes.write_chr cart.chr_write();
+
+	reg_wr prg_read_ack_wait;
+	instruct cart.prg_rom_read par{
+		sdram_read(0b0000 || cart.prg_rom_adrs); // 24bit
+		prg_read_ack_wait := 0b1;
+	}
+	if(prg_read_ack_wait & sdram_ack){
+		prg_read_ack_wait := 0b0;
+		cart.prg_rom_ack();
+	}
+	cart.prg_rom_rdata = sdram_rdata<7:0>;
+
+	instruct cart.prg_rom_write par{
+		sdram_write(0b0000 || cart.prg_rom_adrs, 0x000000 || cart.prg_rom_wdata, 0b0001);
+	}
+
+	reg_wr chr_read_ack_wait;
+	instruct cart.chr_ram_read par{
+		chr_ram.read(cart.chr_ram_adrs); // 256KB
+		chr_read_ack_wait := 0b1;
+	}
+	if(chr_read_ack_wait){
+		chr_read_ack_wait := 0b0;
+		cart.chr_ram_ack();
+	}
+	cart.chr_ram_rdata = chr_ram.dout;
+
+	instruct cart.chr_ram_write par{
+		chr_ram.write(cart.chr_ram_adrs, cart.chr_ram_wdata);
+	}
+
+	instruct nes.VIDEO_enable par{
+		dis.write(nes.video);
+	}
+
+	reg_wr clock25M_div;
+	clock25M_div := ^clock25M_div;
+	if(clock25M_div) vga.run();
+
+	instruct vga.dis par{
+		if(dis_timing) dis.read();
+		dis_timing := ^dis_timing;
+	}
+
+	instruct vga.nes_hsync par{
+		dis.bank_change();
+		generate nes_line.do();
+	}
+
+	instruct dds_ntsc.run par{ // 5.369318MHz
+		if(prg_read_ok){
+			nes.run();
+		}
+	}
+
+	instruct nes.clk_out par{
+		cart.clock1789k();
+	}
+
+	stage nes_line {
+		reg pixel_count<9> = 1;
+		par{
+			if(dds_ntsc.run){
+
+				nes.draw();
+
+				if(pixel_count==341){
+					nes.hblank();
+					pixel_count := 1;
+					finish;
+				}
+				else pixel_count++;
+
+				if(pixel_count==262){ // 256 + 8 ?
+					cart.hblank();
+				}
+			}
+		}
+	}
+
+	// .nes 0x00400000 -> 0x01000000
+	stage apf2sdram {
+		first_state st1;
+		state st1 par{
+			reg_wr wait_count<4>;
+			wait_count++;
+			if(/&wait_count) goto st2;
+		}
+		state st2 if(sdram_ack){
+			set_sdram_reg := 0b1;
+			goto st3;
+		}
+		state st3 if(target_dataslot_read){
+			set_sdram_reg := 0b0;
+			goto st4;
+		}
+		state st4 if(^ram_reloading){
+			goto st1;
+			finish;
+		}
+	}
+
+	stage card2ram {
+		reg_wr radrs<20>;
+		reg data<32>;
+		first_state rbegin;
+		state rbegin if(^apf2sdram.do){
+//apf2sdram_ok := 0b1;//ok
+			prg_read_ok := 0b0;
+			goto sdramread;
+		}
+		state sdramread if(sdram_ack){
+			sdram_read(0b010000 || radrs<19:2>);
+			goto sdramreadwait;
+		}
+		state sdramreadwait if(sdram_ack){
+			data := sdram_rdata;
+			goto head;
+		}
+		state head par{
+			cart.set_head(data<7:0>); // 即反映
+			data := data >> 8;
+			radrs++;
+			if(cart.head_ok) goto reopen;
+			else{
+				if(radrs<1:0>==0b11) goto sdramread;
+			}
+		}
+		state reopen par{
+			nes.mem_clear();
+			radrs := 0;
+			cart.attach(0x00); // init
+			goto sdramread2;
+		}
+		state sdramread2 if(sdram_ack & cart.ack){
+			sdram_read(0b010000 || radrs<19:2>);
+			goto sdramread2wait;
+		}
+		state sdramread2wait if(sdram_ack){
+			data := sdram_rdata;
+			goto maps;
+		}
+		state maps if(cart.ack & sdram_ack){
+			cart.attach(data<7:0>);
+			data := data >> 8;
+			radrs++;
+			if(cart.set_ok) goto rend;
+			else{
+				if(radrs<1:0>==0b11) goto sdramread2;
+			}
+		}
+		state rend if(sdram_ack){
+apf2sdram_ok := 0b1;
+			nes.soft_reset();
+			cart.soft_reset();
+			prg_read_ok := 0b1;
+//generate check_sum.do();
+			goto rbegin;
+			finish;
+		}
+	}
+
+}

@@ -1,0 +1,43 @@
+
+NES on FPGA feat. Analogue Pocket
+
+
+This is a port of the basic functions of the NES(FC) to Analogue Pocket.
+Save files are not supported yet.
+
+
+* Using core.
+
+1. Put the "Assets", "Cores" and "Platforms" in the dist on the SD card.
+
+2. Put the rom.nes in the Assets/nes/common.
+
+   Assets
+      nes
+         common
+            rom.nes
+   Cores
+      pgate1.NES
+         bitstream.rbf_r
+         *.json
+   Platforms
+      _images
+         nes.bin
+      nes.json
+
+3. OK. Insert the SD card into the Pocket, turn it on, and select NES from openFPGA.
+
+4. There are three choices from the file browser.
+
+   If you choose rom.nes, the game will launch.
+
+5. Have fun until your Pocket's battery runs out.
+
+
+
+* What to do when it doesn't work.
+
+This is an unsupported NES mapper.
+
+
+2025/03/19 pgate1

@@ -11,3 +11,7 @@ FPGA data is available at:
 https://pgate1.at-ninja.jp/NES_on_FPGA/index.html#release  
 
 <img width=500 src=https://pgate1.at-ninja.jp/NES_on_FPGA/nes2_top.jpg>
+
+<img width=500 src=https://pgate1.at-ninja.jp/NES_on_FPGA/release/NESonFPGAfeatPocket.jpg>
+
+<img width=500 src=https://pgate1.at-ninja.jp/NES_on_FPGA/release/NESonFPGAfeatTangConsole138K.jpg>

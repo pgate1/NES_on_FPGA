@@ -1,0 +1,20 @@
+Fitter Status : Successful - Tue Apr 29 14:49:13 2025
+Quartus Prime Version : 18.1.1 Build 646 04/11/2019 Patches 1.18std SJ Lite Edition
+Revision Name : ap_core
+Top-level Entity Name : apf_top
+Family : Cyclone V
+Device : 5CEBA4F23C8
+Timing Models : Final
+Logic utilization (in ALMs) : 3,103 / 18,480 ( 17 % )
+Total registers : 3584
+Total pins : 224 / 224 ( 100 % )
+Total virtual pins : 0
+Total block memory bits : 2,215,716 / 3,153,920 ( 70 % )
+Total RAM Blocks : 276 / 308 ( 90 % )
+Total DSP Blocks : 0 / 66 ( 0 % )
+Total HSSI RX PCSs : 0
+Total HSSI PMA RX Deserializers : 0
+Total HSSI TX PCSs : 0
+Total HSSI PMA TX Serializers : 0
+Total PLLs : 1 / 4 ( 25 % )
+Total DLLs : 0 / 4 ( 0 % )
