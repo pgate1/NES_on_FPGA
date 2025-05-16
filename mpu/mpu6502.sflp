@@ -3,7 +3,7 @@
 // without BCD
 
 %i "../fb/alu2.h"
-%i "mpu6502_ir.h"
+%i "mpu6502ir.h"
 
 %d DACS 0b100
 %d EXEC 0b101
@@ -50,19 +50,18 @@ circuit mpu6502
 	alu2 alu;
 
 //	reg_wr old_ir<8>;
-	reg_wr halt;
-	sel rid<3>;
-	reg rid_reg<3>;
 
 	instrself accumulator;
 	instrself adrs_immediate;
 	instrself adrs_absolute;
 	instrself adrs_zeropage;
 	instrself adrs_indirectx;
-	instrself adrs_indirecty;
+	sel check_page_crossing;
+	reg pre_cout;
+	instrself adrs_indirecty(check_page_crossing);
 	sel idx<8>;
 	instrself adrs_zeroindex(idx);
-	instrself adrs_absindex(idx);
+	instrself adrs_absindex(idx, check_page_crossing);
 
 	instrself flag_nz(nz);
 	instrself nexti;
@@ -76,7 +75,14 @@ circuit mpu6502
 
 	instrself pc_inc;
 	instrself read(A, rid);
+	sel rid<3>;
+	reg rid_reg<3>;
 	instrself write(A, dout);
+
+	instrself halt(h_code);
+	sel h_code<8>;
+	reg_wr halt_code_reg<8>;
+	output halt_code<8>;
 
 output ir_sync;
 reg_wr ir_sync_reg;
@@ -91,28 +97,14 @@ output dbg<8>;
 		reset := 0b0;
 	}
 
-	pc = pch || pcl;
-	adrs = ah || al;
-	pstate = fn || fv || 0b1 || fb || fd || fi || fz || fc;
-
-	// debug
-	ir_out = ir;
-	pc_out = pc;
-	ist_out = ist;
-if(ir_sync_reg) ir_sync_reg:=0b0;
-ir_sync = ir_sync_reg;
-dbg = sp;
-
-	instruct soft_reset reset_act();
-
 	instruct reset_act par{
 		ra := 0x00;
 		rx := 0x00;
 		ry := 0x00;
-		sp := 0x00;
+		sp := 0xFD;
 		fn := 0b0;
 		fv := 0b0;
-		fb := 0b0;
+		fb := 0b1;
 		fd := 0b0;
 		fi := 0b1;
 		fz := 0b1;
@@ -125,6 +117,23 @@ dbg = sp;
 		NMI_do := 0b0;
 		IRQ_do := 0b0;
 	}
+
+	instruct soft_reset reset := 0b1;
+
+	instruct halt halt_code_reg := h_code;
+	halt_code = halt_code_reg;
+
+	pc = pch || pcl;
+	adrs = ah || al;
+	pstate = fn || fv || 0b1 || fb || fd || fi || fz || fc;
+
+// debug
+ir_out = ir;
+pc_out = pc;
+ist_out = ist;
+if(ir_sync_reg) ir_sync_reg:=0b0;
+ir_sync = ir_sync_reg;
+dbg = sp;
 
 	instruct NMI par{
 		f_NMI := 0b1;
@@ -215,13 +224,12 @@ dbg = sp;
 				read(pc, READ_AH);
 				pc_inc();
 				al := alu.add(data, idx, 0b0).dout;
-				any{
-					alu.cout : ist := 0b010;
-					else : ist := DACS;
-				}
+				pre_cout := alu.cout;
+				if(^check_page_crossing | alu.cout) ist := 0b010;
+				else ist := DACS;
 			}
 			ist==0b010 : par{
-				ah := alu.add(ah, 0x01, 0b0).dout;
+				ah := alu.add(ah, 0x00, pre_cout).dout;
 				ist := DACS;
 			}
 		}
@@ -269,13 +277,12 @@ dbg = sp;
 			ist==0b010 : par{
 				read(adrs, READ_AH);
 				al := alu.add(data, ry, 0b0).dout;
-				any{
-					alu.cout : ist := 0b011;
-					else : ist := DACS;
-				}
+				pre_cout := alu.cout;
+				if(^check_page_crossing | alu.cout) ist := 0b011;
+				else ist := DACS;
 			}
 			ist==0b011 : par{
-				ah := alu.add(ah, 0x01, 0b0).dout;
+				ah := alu.add(ah, 0x00, pre_cout).dout;
 				ist := DACS;
 			}
 		}
@@ -333,7 +340,7 @@ dbg = sp;
 	instruct run par{
 		any{
 			NMI_do | IRQ_do : generate interrupt.do();
-			halt : ;
+			/|halt_code : ;
 			else : generate execute.do();
 		}
 	}
@@ -413,10 +420,10 @@ dbg = sp;
 					ir<4:2>==0b011 : adrs_absolute();
 					ir<4:2>==0b001 : adrs_zeropage();
 					ir<4:2>==0b000 : adrs_indirectx();
-					ir<4:2>==0b100 : adrs_indirecty();
+					ir<4:2>==0b100 : adrs_indirecty(^I_STA);
 					ir<4:2>==0b101 : adrs_zeroindex(rx);
-					ir<4:2>==0b111 : adrs_absindex(rx);
-					ir<4:2>==0b110 : adrs_absindex(ry);
+					ir<4:2>==0b111 : adrs_absindex(rx, ^I_STA);
+					ir<4:2>==0b110 : adrs_absindex(ry, ^I_STA);
 					ist==DACS : par{
 						any{
 							I_STA : write(adrs, ra);
@@ -472,7 +479,7 @@ dbg = sp;
 							ir<4:2>==0b011 : adrs_absolute();
 							ir<4:2>==0b001 : adrs_zeropage();
 							ir<4:2>==0b101 : adrs_zeroindex(rx);
-							ir<4:2>==0b111 : adrs_absindex(rx);
+							ir<4:2>==0b111 : adrs_absindex(rx, 0b0);
 						}
 						ist==DACS : par{
 							read(adrs, READ_DATA);
@@ -600,32 +607,29 @@ dbg = sp;
 						I_RTI | I_RTS : any{ // 6clk
 							ist==0b000 : par{
 								stack_pop();
-								any{
-									I_RTI : ist := 0b001;
-									I_RTS : ist := 0b011;
-								}
+								ist := 0b001;
 							}
 							ist==0b001 : par{
-								set_state(data);
-								ist := 0b010;
+								any{
+									ir<5>==0b0 : ist := 0b010; // RTI
+									ir<5>==0b1 : ist := 0b100; // RTS
+								}
 							}
 							ist==0b010 : par{
+								set_state(data);
 								stack_pop();
-								ist := 0b011;
-							}
-							ist==0b011 : par{
-								pcl := data;
 								ist := 0b100;
 							}
 							ist==0b100 : par{
+								pcl := data;
 								stack_pop();
 								ist := 0b101;
 							}
 							ist==0b101 : par{
 								pch := data;
 								any{
-									I_RTI : ist := 0b111;
-									I_RTS : ist := 0b110;
+									ir<5>==0b0 : ist := 0b111; // RTI
+									ir<5>==0b1 : ist := 0b110; // RTS
 								}
 							}
 							ist==0b110 : par{
@@ -644,8 +648,8 @@ dbg = sp;
 								pcl := al;
 								read(pc, READ_PCH);
 								any{
-									ir<5>==0b0 : ist := 0b111;
-									ir<5>==0b1 : ist := 0b010;
+									ir<5>==0b0 : ist := 0b111; // Absolute
+									ir<5>==0b1 : ist := 0b010; // Indirect
 								}
 							}
 							ist==0b010 : par{
@@ -742,7 +746,7 @@ dbg = sp;
 							ir<4:3>==0b01 : adrs_absolute();
 							ir<4:3>==0b00 : adrs_zeropage();
 							ir<4:3>==0b10 : adrs_zeroindex(rx);
-							ir<4:3>==0b11 : adrs_absindex(rx);
+							ir<4:3>==0b11 : adrs_absindex(rx, 0b0);
 						}
 						ist==DACS : par{
 							read(adrs, READ_DATA);
@@ -779,8 +783,8 @@ dbg = sp;
 									I_LDY : adrs_zeroindex(rx);
 								}
 								ir<4:2>==0b111 : any{
-									I_LDX : adrs_absindex(ry);
-									I_LDY : adrs_absindex(rx);
+									I_LDX : adrs_absindex(ry, 0b1);
+									I_LDY : adrs_absindex(rx, 0b1);
 								}
 							}
 							ist==DACS : par{
@@ -872,16 +876,12 @@ dbg = sp;
 									I_BVC : branch_flag = ^fv;
 									I_BVS : branch_flag = fv;
 								}
-								any{
-									branch_flag : par{
-										pcl := alu.add(pcl, data, 0b0).dout;
-										any{
-											data<7> @ alu.cout : ist := 0b010;
-											else : ist := 0b111;
-										}
-									}
-									else : nexti();
+								if(branch_flag){
+									pcl := alu.add(pcl, data, 0b0).dout;
+									if(data<7> @ alu.cout) ist := 0b010;
+									else ist := 0b111;
 								}
+								else nexti();
 							}
 							ist==0b010 : par{
 								any{

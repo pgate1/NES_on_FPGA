@@ -63,6 +63,7 @@ module NES_top
 );
 
 wire p_reset, g_reset;
+wire m_clock;
 
 wire [15:0] sram_Dout;
 wire sram_Dout_En;
@@ -86,7 +87,7 @@ wire audio_SET;
 
 	core CU (
 		.p_reset(g_reset),
-		.m_clock(CLK_50),
+		.m_clock(m_clock),//CLK_50),
 		.KEY(KEY), .SW(SW),
 		.LEDR(LEDR), .LEDG(LEDG),
 		.HEX0(HEX0), .HEX1(HEX1), .HEX2(HEX2), .HEX3(HEX3),
@@ -136,8 +137,11 @@ wire audio_SET;
 	assign SRAM_DQ = sram_Dout_En==1'b0 ? sram_Dout : 16'hzzzz;
 
 	assign SDRAM_CKE = 1'b1;
-	sdram_pll sdram_pll_inst (
-		.inclk0(CLK_50), .c0(SDRAM_CLK)
+//	sdram_pll sdram_pll_inst (
+//		.inclk0(CLK_50), .c0(SDRAM_CLK)
+//	);
+	sdram_pll_50 sdram_pll_inst (
+		.inclk0(CLK_50), .c0(m_clock), .c1(SDRAM_CLK)
 	);
 	assign SDRAM_DQ = sdram_Dout_En==1'b0 ? sdram_Dout : 16'hzzzz;
 

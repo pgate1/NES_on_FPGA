@@ -36,7 +36,7 @@ circuit core
 {
 	input BUTTON<3>;
 	chatmask cmask_0, cmask_1, cmask_2;
-	sela btn[3];
+	sels btn[3];
 	input SW<10>;
 	seg7_ctrl seg7_0, seg7_1, seg7_2, seg7_3;
 	sel seg<16>;
@@ -64,7 +64,7 @@ circuit core
 //--------------------- VGA --------------------------------
 	output VGA_HS, VGA_VS;
 	output VGA_R<4>, VGA_G<4>, VGA_B<4>;
-	reg_wr red_out_reg<4>, grn_out_reg<4>, blu_out_reg<4>;
+	reg_wr VGA_R_reg<4>, VGA_G_reg<4>, VGA_B_reg<4>;
 	VGA_ctrl vga;
 	Display_4 dis;
 	reg_ws dis_timing;
@@ -115,12 +115,12 @@ circuit core
 	stage_name lcd_view { task do(); }
 
 	if(reset){
-		reset := 0b0;
 		generate clock3580k.do();
 		generate card2ram.do();
 		file_num := 0;
 		generate key2btn.do();
 		generate lcd_view.do();
+		reset := 0b0;
 	}
 
 	par(i=0;i<3;i++){
@@ -170,7 +170,7 @@ circuit core
 
 	instruct vga.nes_vsync wave.vsync();
 	wave.sound = nes.sound_L;
-
+/*
 	vga.vt_su = 2;
 	vga.vt_vu = 2 + 33;
 	vga.vt_nu = 2 + 33 + 16 - 2;
@@ -183,32 +183,52 @@ circuit core
 	vga.ht_nd = 96 + 48 + 64 + 512;
 	vga.ht_vd = 96 + 48 + 640;
 	vga.ht_sd = 800 - 1;
+*/
+// V525ラインにするとH792になって描画がオーバーする
+// VGA 640x480 ドットクロック 25.0MHz Vライン524 フレームレート60.0988 Hzを実現するためのHタイミングについて計算してください。Vタイミングについてもついでに教えてください。
+// 約60.0988Hz cpu_timing_test ok
+	vga.vt_su = 2;
+	vga.vt_vu = 2 + 32;
+	vga.vt_nu = 2 + 32 + 16 - 1;
+	vga.vt_nd = 2 + 32 + 480 - 16 - 1;
+	vga.vt_vd = 2 + 32 + 480;
+	vga.vt_sd = 524 - 1;
+	vga.ht_su = 96;
+	vga.ht_vu = 96 + 42;
+	vga.ht_nu = 96 + 42 + 64;
+	vga.ht_nd = 96 + 42 + 64 + 512;
+	vga.ht_vd = 96 + 42 + 640;
+	vga.ht_sd = 794 - 1;
+
 	if(vga.win_valid){
 		if(cart.f_nsf){
 			// 波形表示
 			wave.read(vga.hcount, vga.vcount);
-			red_out_reg := wave.r_out<4:1>;
-			grn_out_reg := wave.g_out<4:1>;
-			blu_out_reg := wave.b_out<4:1>;
+			VGA_R_reg := wave.r_out<4:1>;
+			VGA_G_reg := wave.g_out<4:1>;
+			VGA_B_reg := wave.b_out<4:1>;
 		}
 		else{
-			red_out_reg := dis.r_out;
-			grn_out_reg := dis.g_out;
-			blu_out_reg := dis.b_out;
+			VGA_R_reg := dis.r_out;
+			VGA_G_reg := dis.g_out;
+			VGA_B_reg := dis.b_out;
 		}
 	}
 	else{
 		// NES画面外の色（ディスプレイ自動幅調整のため）
-		red_out_reg := 0b0001;
-		grn_out_reg := 0b0001;
-		blu_out_reg := 0b0001;
+		VGA_R_reg := 0b0001;
+		VGA_G_reg := 0b0001;
+		VGA_B_reg := 0b0001;
 	}
-	reg_wr VGA_HS_reg, VGA_VS_reg, VGA_R_reg<4>, VGA_G_reg<4>, VGA_B_reg<4>;
+	reg_wr VGA_HS_reg, VGA_VS_reg;
 	VGA_HS_reg := vga.hsync; VGA_HS = VGA_HS_reg;
 	VGA_VS_reg := vga.vsync; VGA_VS = VGA_VS_reg;
-	VGA_R_reg := red_out_reg & (4#vga.view_valid); VGA_R = VGA_R_reg;
-	VGA_G_reg := grn_out_reg & (4#vga.view_valid); VGA_G = VGA_G_reg;
-	VGA_B_reg := blu_out_reg & (4#vga.view_valid); VGA_B = VGA_B_reg;
+//	VGA_R_reg := red_out_reg & (4#vga.view_valid); VGA_R = VGA_R_reg;
+//	VGA_G_reg := grn_out_reg & (4#vga.view_valid); VGA_G = VGA_G_reg;
+//	VGA_B_reg := blu_out_reg & (4#vga.view_valid); VGA_B = VGA_B_reg;
+	VGA_R = VGA_R_reg;
+	VGA_G = VGA_G_reg;
+	VGA_B = VGA_B_reg;
 
 	LCD_RS = lcd.rs;
 	LCD_RW = lcd.rw;
@@ -289,8 +309,11 @@ circuit core
 		cart.soft_reset();
 	}
 
-	seg = nes.pc_out;
-//	seg = nes.dbg;
+	any{
+		btn_2 : seg = nes.dbg;
+		btn_1 : seg = 0x00 || nes.halt_code;
+		else : seg = nes.pc_out;
+	}
 
 	if(cart.f_nsf) alt{
 		btn_2 : par{ // 進む
@@ -302,23 +325,23 @@ circuit core
 	}
 
 	cart.ROM_SELn = nes.ROM_SELn;
-	cart.prg_A = nes.A;
+	cart.prg_A = nes.prg_A;
 	instruct nes.read_prg cart.prg_read();
-	nes.prg_din = cart.prg_Dout;
+	nes.prg_Dout = cart.prg_Dout;
 	instruct cart.prg_ack nes.prg_ack();
 
-	cart.prg_Din = nes.prg_dout;
+	cart.prg_Din = nes.prg_Din;
 	instruct nes.write_prg cart.prg_write();
 
-	cart.chr_A = nes.PA;
+	cart.chr_A = nes.chr_PA;
 	instruct nes.read_chr par{
 		// romセット時にchr_rom読み込み防止
 		if(prg_read_ok) cart.chr_read();
 	}
-	nes.chr_din = cart.chr_Dout;
+	nes.chr_PDout = cart.chr_Dout;
 	instruct cart.chr_ack nes.chr_ack();
 
-	cart.chr_Din = nes.chr_dout;
+	cart.chr_Din = nes.chr_PDin;
 	instruct nes.write_chr cart.chr_write();
 
 	// SDRAM1個でPRG-ROMとCHR-ROMを共有する
@@ -464,7 +487,7 @@ circuit core
 	}
 
 	stage nes_line {
-		reg_wr pixel_count<9>;
+		reg pixel_count<9> = 1;
 		par{
 			if(dds_ntsc.run){
 

@@ -39,8 +39,10 @@
 %i "Mapper080.h"
 %i "Mapper089.h"
 %i "Mapper118.h"
-%i "MapperNSF.h"
-//%i "MapperNSF_nonEx.h"
+#ifdef MapNSF
+//%i "MapperNSF.h"
+%i "MapperNSF_nonEx.h"
+#endif
 %i "MapperDummy.h"
 
 %i "../mem/ram_8x8k.h"
@@ -163,7 +165,7 @@ output dbg<16>;
 	output f_nes;
 
 	instrin set_type(set_Din), soft_reset;
-	reg_wr map_type<8>;
+	reg_wr map_type<8>; // S:NSF
 	instrin attach(set_Din);
 	input set_Din<8>;
 	output ack, set_ok;

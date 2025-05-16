@@ -85,8 +85,8 @@ circuit nes_core
 
 	instrself halt(h_code);
 	sel h_code<8>;
-	reg_wr halt_code<8>;
-	output halt_out<8>;
+	reg_wr halt_code_reg<8>;
+	output halt_code<8>;
 
 	// Debug
 output ir_out<8>, pc_out<16>, ir_sync;
@@ -114,8 +114,8 @@ output dbg<16>;
 	stage_name mem_clear_stg { task do(); }
 
 	if(reset){
-		reset := 0b0;
 		mpu_timing := 0b001;
+		reset := 0b0;
 	}
 
 	any{
@@ -223,10 +223,11 @@ output dbg<16>;
 		trace_ir();
 	}
 */
-	instruct halt halt_code := h_code;
-	halt_out = halt_code | ppu.halt_out;
+	instruct halt halt_code_reg := h_code;
+	halt_code = halt_code_reg | /*mpu.halt_code |*/ ppu.halt_out;
 
 	instruct soft_reset par{
+		reset := 0b1;
 		mpu.soft_reset();
 		apu.ready();
 		ppu.soft_reset();
@@ -241,7 +242,7 @@ output dbg<16>;
 		generate mem_clear_stg.do();
 	}
 
-	instruct run if(halt_out==0x00){
+	instruct run if(halt_code==0x00){
 //if(mem_clear_stg.do) halt(0x6);
 
 		if(mpu_timing<0>){ // –ñ1.789MHz

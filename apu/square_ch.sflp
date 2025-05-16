@@ -154,7 +154,7 @@ circuit square_ch
 
 	// 120Hz
 	stage SweepUnit {
-		reg sweep_div<3>;
+		reg_wr sweep_div<3>;
 		par{
 			finish;
 			alt{

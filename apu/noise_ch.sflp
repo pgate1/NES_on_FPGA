@@ -49,8 +49,8 @@ circuit noise_ch
 //	stage_name time_read_wait { task do(); }
 
 	if(reset){
-		reset := 0b0;
 		random_data := 0b000000000000001;
+		reset := 0b0;
 	}
 
 	timer.period = time_table(period_index).time_max;

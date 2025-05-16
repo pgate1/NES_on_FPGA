@@ -3,13 +3,15 @@
 	Copyright (c) 2023 pgate1
 */
 
-%i "../../../TangNano20K/sdcard_ctrl.h"
-%i "../../../hdl/fat16.h"
-%i "../../../TangNano20K/sdram_ctrl.h"
+%i "../../../DE0/SDHCcard_ctrl_SPImode.h"
+%i "../../../DE0/FAT32.h"
+%i "../../../TangNano20K/sdram8_ctrl_50.h"
+%i "../../../TangNano20K/PSPAD_ctrl.h"
+%i "../../../TangNano20K/audio_driver.h"
 
 %i "../nes_core.h"
 %i "../mapper/Mapper.h"
-%i "display_5.h"
+%i "Display_5_8.h"
 %i "VGA_ctrl.h"
 %i "../../../hdl/dsdac7.h"
 %i "DDS_4995to5369318.h"
@@ -23,29 +25,36 @@ circuit core
 	output LED<6>;
 //--------------------- SDRAM Interface --------------------
 	// 64Mbit、8MB、2M word 32bit
-	sdram_ctrl sdram;
+	sdram8_ctrl_50 sdram;
 	output SDRAM_CSn, SDRAM_WEn, SDRAM_DEn;
 	output SDRAM_RASn, SDRAM_CASn;
 	output SDRAM_BA<2>, SDRAM_ADDR<11>;
 	output SDRAM_DQM<4>;
-	input  SDRAM_Din<32>;
-	output SDRAM_Dout<32>;
+	input  SDRAM_Dout<32>;
+	output SDRAM_Din<32>;
 //--------------------- SD_Card Interface ------------------
 	output SD_CSn; // SD Card CSn
 	output SD_CLK; // SD Card Clock
 	output SD_CMD; // SD Card Command & Dout
 	input  SD_DAT; // SD Card Data
-	sdcard_ctrl sdcard;
-	fat16 fat;
+	SDHCcard_ctrl_SPImode sdcard;
+	FAT32 fat;
 //--------------------- VGA --------------------------------
 	output DVI_VS, DVI_HS, DVI_DE;
 	output DVI_R<8>, DVI_G<8>, DVI_B<8>;
 	VGA_ctrl vga;
-	Display_5 dis;
-//-------------------- SOUND -------------------------------
-	dsdac16 dac;
-//	output Sound;
-//------------------------------------------------------
+	Display_5_8 dis;
+//-------------------- Audio -------------------------------
+	output Audio_L<16>, Audio_R<16>;
+//--------------------- Audio Horn -------------------------
+	audio_driver audio;
+	output HP_BCK, HP_WS, HP_DIN;
+	dsdac16 dac; // LED用
+//--------------------- PS PAD -----------------------------
+	PSPAD_ctrl pad;
+	output PAD_SELn, PAD_CLK, PAD_CMD;
+	input PAD_DAT;
+//----------------------------------------------------------
 
 	reg_ws reset;
 
@@ -78,14 +87,16 @@ circuit core
 	SDRAM_BA = sdram.BA;
 	SDRAM_ADDR = sdram.A;
 	SDRAM_DQM = sdram.DQM;
-	SDRAM_Dout = sdram.Dout;
-	sdram.Din = SDRAM_Din;
+	SDRAM_Din = sdram.Din;
+	sdram.Dout = SDRAM_Dout;
+	sdram.auto_refresh = 0b1;
 
 	SD_CSn = sdcard.CSn;
 	SD_CLK = sdcard.CLK;
 	SD_CMD = sdcard.CMD;
 	sdcard.DAT = SD_DAT;
 
+	instruct fat.sread sdcard.read(fat.sadrs);
 	fat.sack = sdcard.ack;
 	fat.sdata = sdcard.rdata;
 
@@ -108,9 +119,9 @@ circuit core
 	if(vga.view_valid){
 		if(vga.win_valid){
 			if(cart.supported){
-				DVI_R = dis.r_out || 0b000;
-				DVI_G = dis.g_out || 0b000;
-				DVI_B = dis.b_out || 0b000;
+				DVI_R = dis.r_out;
+				DVI_G = dis.g_out;
+				DVI_B = dis.b_out;
 			}
 			else{
 				DVI_R = 0xFF;
@@ -130,12 +141,23 @@ circuit core
 		DVI_B = 0x00;
 	}
 
+	pad.f_50MHz();
+	PAD_SELn = pad.SELn;
+	PAD_CLK = pad.CLK;
+	PAD_CMD = pad.CMD;
+	pad.DAT = PAD_DAT;
+
+	HP_BCK = audio.HP_BCK;
+	HP_WS  = audio.HP_WS;
+	HP_DIN = audio.HP_DIN;
+
 	nes.f_real_cartridge = 0b0;
 	nes.IRQn = cart.IRQn;
 	nes.VRAM_CSn = cart.VRAM_CSn;
 	nes.VRAM_A10 = cart.VRAM_A10;
 	if(^prg_read_ok) nes.ready();
 
+	nes.f_stereo = 0b0;
 //	nes.speed = SW<2>;
 //	nes.stop  = 0b0;
 	nes.f_nsf = cart.f_nsf;
@@ -156,16 +178,32 @@ circuit core
 */
 	cart.fat_eof = fat.eof;
 
+	nes.mute = 0b00000;
+	nes.f_volume_boost = 0b00100; // 三角波をブースト
 //	cart.nes_sound_L = nes.sound_L;
 //	cart.nes_sound_R = nes.sound_R;
 
-//	nes.mute = 0b01111;
-	dac.din = nes.sound_L || 0b00000000;
+	cart.nes_sound_L = nes.sound_L;
+	cart.nes_sound_R = nes.sound_R;
 
-	LED = dac.dout || 0b0000 || prg_read_ok;
+	dac.din = nes.sound_L || 0b00000000;
+	audio.data = 0b000 || (nes.sound_L + nes.volume_boost) || 0b00000;
+
+	Audio_L = 0b0 || cart.sound_L;
+	if(0b0){ // 逆位相サラウンド
+		Audio_R = -(0b0 || cart.sound_R);
+	}
+	else{
+		Audio_R = 0b0 || cart.sound_R;
+	}
+
+	LED = dac.dout || (pad.data_cur<7:4>|pad.data_cur<3:0>|pad.data_ref<7:4>|pad.data_ref<3:0>) || prg_read_ok;
 
 	// NESPAD : 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
-	nes.pad1P = 0b0000 || BTN || 0b00 || BTN;
+	nes.pad1P = (0b0000 || BTN || 0b00 || BTN) |
+		  (pad.data_cur<5> || pad.data_cur<7> || pad.data_cur<6> || pad.data_cur<4>
+		|| pad.data_cur<3> || pad.data_cur<0> || (pad.data_ref<6> | pad.data_ref<4>)
+		|| (pad.data_ref<7> | pad.data_ref<5>));
 	nes.pad2P = 0x00;
 
 	cart.ROM_SELn = nes.ROM_SELn;
@@ -198,7 +236,7 @@ circuit core
 	// すでにCHR-ROMアクセス時なら終了待ち、ack必要。
 	if( (cart.prg_rom_read | prg_read_wait) &
 		^chr_read_ack_wait & ^chr_write_ack_wait & sdram.ack){
-		sdram.read(0b0||cart.prg_rom_adrs);
+		sdram.read(0b000||cart.prg_rom_adrs);
 		prg_read_wait := 0b0;
 		prg_read_ack_wait := 0b1;
 	}
@@ -211,13 +249,13 @@ circuit core
 
 	// PRG-ROM writeは、ROM読み込み時のみなので排他処理不要。
 	instruct cart.prg_rom_write par{
-		sdram.write(0b0||cart.prg_rom_adrs, 0x000000||cart.prg_rom_wdata, 0b0001);
+		sdram.write(0b000||cart.prg_rom_adrs, cart.prg_rom_wdata);
 	}
 
 	// CHR-ROM readは、PRG-ROM readアクセス終了待ち、ack必要。
 	if( (cart.chr_ram_read | chr_read_wait) &
 		^cart.prg_rom_read & ^prg_read_ack_wait & sdram.ack){
-		sdram.read(0b100||cart.chr_ram_adrs);
+		sdram.read(0b10000||cart.chr_ram_adrs);
 		chr_read_wait := 0b0;
 		chr_read_ack_wait := 0b1;
 	}
@@ -231,7 +269,7 @@ circuit core
 	// CHR-RAM writeは、PRG-ROM readアクセス終了待ち、ack不要。
 	if( (cart.chr_ram_write | chr_write_wait) &
 		^cart.prg_rom_read & ^prg_read_ack_wait & sdram.ack){
-		sdram.write(0b100||cart.chr_ram_adrs, 0x000000||cart.chr_ram_wdata, 0b0001);
+		sdram.write(0b10000||cart.chr_ram_adrs, cart.chr_ram_wdata);
 		chr_write_wait := 0b0;
 		chr_write_ack_wait := 0b1;
 	}
@@ -240,8 +278,7 @@ circuit core
 		chr_write_ack_wait := 0b0;
 	}
 
-
-	instruct nes.NES_VIDEO_enable par{
+	instruct nes.VIDEO_enable par{
 		dis.write(nes.video);
 	}
 
@@ -261,6 +298,10 @@ circuit core
 		generate nes_line.do();
 	}
 
+	instruct vga.nes_vsync par{
+		pad.key_get();
+	}
+
 	instruct dds_ntsc.run par{ // 5.369318MHz
 		if(prg_read_ok){
 			nes.run();
@@ -271,12 +312,8 @@ circuit core
 		cart.clock1789k();
 	}
 
-	instruct fat.sread par{
-		sdcard.read(fat.sadrs);
-	}
-
 	stage nes_line {
-		reg_wr pixel_count<9>;
+		reg pixel_count<9> = 1;
 		par{
 			if(dds_ntsc.run){
 

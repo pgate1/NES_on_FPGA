@@ -71,8 +71,8 @@ output dbg<8>;
 	stage_name FrameSequencer { task do(); }
 
 	if(reset){
-		reset := 0b0;
 		frame_ls := 0b00001;
+		reset := 0b0;
 	}
 
 	sq1.ch_slct = 0b0;
@@ -294,7 +294,7 @@ Readしてしまう問題がある。解決方法としてはppmckの最新版を使用すること。
 	instruct noise.tim_out noi_tim();
 
 	stage FrameSequencer { // mpu.run + 1clk
-		reg frame_div<13>;
+		reg_wr frame_div<13>;
 		par{
 			finish;
 			if(frame_div!=0){

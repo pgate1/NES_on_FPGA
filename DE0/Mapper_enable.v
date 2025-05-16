@@ -9,7 +9,8 @@ module Mapper_enable
 			case (i)
 				0
 				, 1, 2, 3, 4
-			//	, 25
+				, 12 // NSF
+				, 25
 				, 73 
 				:
 					assign enable[i] = 1'b1;

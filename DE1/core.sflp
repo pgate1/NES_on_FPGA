@@ -14,15 +14,15 @@
 %i "../../../DE1/sdram_ctrl.h"
 //%i "../../../DE1/flashmem_ctrl.h"
 %i "../../../DE1/dac_ctrl.h"
-%i "../../../DE1/sdcard_ctrl.h"
-%i "../../../hdl/fat16.h"
+%i "../../../DE0/SDSCcard_ctrl_SPImode.h"
+%i "../../../DE0/FAT16.h"
 %i "../../../DE1/keyboard_ctrl.h"
 %i "../../../DE1/vjtag_uart.h"
 
 %i "../nes_core.h"
 %i "../mapper/Mapper.h"
-%i "Display_3.h"
-%i "../../../hdl/pspad_ctrl.h"
+%i "Display_4.h"
+//%i "../../../hdl/pspad_ctrl.h"
 %i "VGA_ctrl.h"
 %i "../../../hdl/chat_mask.h"
 //%i "../../../hdl/uart_ctrl.h"
@@ -30,11 +30,15 @@
 
 %i "DDS_50to5369318.h"
 
+declare Mapper_enable interface { output enable<256>; }
+
+//#define VRC7
+
 circuit core
 {
 	input KEY<4>, SW<10>;
 	chat_mask kcmask_0, kcmask_1, kcmask_2, kcmask_3;
-	sela key[4];
+	sels key[4];
 	output LEDR<10>, LEDG<8>;
 	output HEX0<7>, HEX1<7>, HEX2<7>, HEX3<7>;
 	seg7_ctrl seg70, seg71, seg72, seg73;
@@ -68,19 +72,18 @@ circuit core
 	output SD_CLK; // SD Card Clock
 	output SD_CMD; // SD Card Command & Dout
 	input  SD_DAT; // SD Card Data
-	sdcard_ctrl sdcard;
-	fat16 fat;
+	SDSCcard_ctrl_SPImode sdcard;
+	FAT16 fat;
 //--------------------- PS/2 -------------------------------
 	input PS2_CLK, PS2_DAT;
 	keyboard_ctrl kb;
-	mem keys[128];
+	mem keys[256]; // 使用は127まで
 //--------------------- VGA --------------------------------
 	output VGA_HS, VGA_VS;
 	output VGA_R<4>, VGA_G<4>, VGA_B<4>;
 	VGA_ctrl vga;
 	reg_wr red_out_reg<4>, grn_out_reg<4>, blu_out_reg<4>;
-	reg_wr clock25M_div;
-	Display_3 dis;
+	Display_4 dis;
 	reg_ws dis_timing;
 //--------------------- Audio ------------------------
 	input audio_RD;
@@ -90,7 +93,6 @@ circuit core
 //	output PAD_SEL1n, PAD_SEL2n, PAD_CLK, PAD_CMD;
 //	input PAD_ACKn, PAD_DAT;
 //	PSPAD_ctrl pad;
-	sel psw_pad<8>;
 //------------------------------------------------------
 
 	reg_ws reset;
@@ -100,6 +102,7 @@ circuit core
 	// NES
 	nes_core nes;
 	Mapper cart;
+	Mapper_enable mapper_enable;
 
 	reg_wr file_num<8>;
 
@@ -117,25 +120,24 @@ circuit core
 
 	stage_name nes_line { task do(); }
 	stage_name clock3580k { task do(); }
-	stage_name clock25M { task do(); }
 	stage_name key2btn { task do(); }
 //	stage_name clk500k { task do(); }
 //	stage_name uart2ram { task do(); }
 	stage_name key_seek { task next(); task back(); }
 	stage_name card2ram { task do(); }
 	stage_name vjtag2ram { task do(); }
+	stage_name tas_stg { task do(); }
 
 	if(reset){
-		reset := 0b0;
 		generate clock3580k.do();
 	//	generate clk500k.do();
-		generate clock25M.do();
-		generate card2ram.do();
-		generate key2btn.do();
 		file_num := 0;
+		if(^nes.f_real_cartridge) generate card2ram.do();
+	//	generate key2btn.do();
+		reset := 0b0;
 	}
 
-	UART_TXD = 0b1; // LED off
+	UART_TXD = 0b1; // LED消灯のため
 
 	par(i=0;i<4;i++){
 		kcmask[i].kin = ^KEY<i>; key[i] = kcmask[i].kout;
@@ -173,6 +175,7 @@ circuit core
 	SD_CMD = sdcard.CMD;
 	sdcard.DAT = SD_DAT;
 
+	instruct fat.sread sdcard.read(fat.sadrs);
 	fat.sack = sdcard.ack;
 	fat.sdata = sdcard.rdata;
 /*
@@ -198,21 +201,22 @@ circuit core
 	vga.ht_vd = 741; // vu + 640 -a
 	vga.ht_sd = 795 - 1;
 	if(vga.win_valid){
-		red_out_reg := dis.r_out || 0b0;
-		grn_out_reg := dis.g_out || 0b0;
-		blu_out_reg := dis.b_out || 0b0;
+		red_out_reg := dis.r_out;
+		grn_out_reg := dis.g_out;
+		blu_out_reg := dis.b_out;
 	}
 	else{
 		// NES画面外の色（ディスプレイ自動幅調整のため）
-		red_out_reg := 0b0010;
-		grn_out_reg := 0b0010;
-		blu_out_reg := 0b0010;
+		red_out_reg := 0b0001;
+		grn_out_reg := 0b0001;
+		blu_out_reg := 0b0001;
 	}
-	VGA_HS = vga.hsync;
-	VGA_VS = vga.vsync;
-	VGA_R = red_out_reg & (4#vga.view_valid);
-	VGA_G = grn_out_reg & (4#vga.view_valid);
-	VGA_B = blu_out_reg & (4#vga.view_valid);
+	reg_wr VGA_HS_reg, VGA_VS_reg, VGA_R_reg<4>, VGA_G_reg<4>, VGA_B_reg<4>;
+	VGA_HS_reg := vga.hsync; VGA_HS = VGA_HS_reg;
+	VGA_VS_reg := vga.vsync; VGA_VS = VGA_VS_reg;
+	VGA_R_reg := red_out_reg & (4#vga.view_valid); VGA_R = VGA_R_reg;
+	VGA_G_reg := grn_out_reg & (4#vga.view_valid); VGA_G = VGA_G_reg;
+	VGA_B_reg := blu_out_reg & (4#vga.view_valid); VGA_B = VGA_B_reg;
 
 	nes.f_real_cartridge = 0b0;
 	nes.IRQn = cart.IRQn;
@@ -225,6 +229,8 @@ circuit core
 	nes.stop  = 0b0;//pad.data_ref<3>;
 	nes.f_nsf = cart.f_nsf;
 	instruct cart.NMI_out nes.nsf_NMI();
+
+	cart.mapper_enable = mapper_enable.enable;
 
 	if(^prg_read_ok) cart.ready();
 	instruct nes.clk_out cart.Phi();
@@ -241,7 +247,15 @@ circuit core
 	// 0～255 → -128～127
 //	dac.data_L = (5#(^nes.volume_L<7>)) || nes.volume_L<6:0> || 0b0000 || 0x0000;
 //	dac.data_R = (5#(^nes.volume_R<7>)) || nes.volume_R<6:0> || 0b0000 || 0x0000;
+/*
+#ifdef VRC7
 	cart.mute = SW<9:3>;
+#else
+	cart.mute = SW<9:3> | 0b0000001;
+#endif
+*/
+	cart.mute = 0b0000001; // mute VRC7
+
 	cart.nes_sound_L = nes.sound_L;
 	cart.nes_sound_R = nes.sound_R;
 	sound_L = 0b0 || cart.sound_L;
@@ -295,6 +309,7 @@ circuit core
 	dac_sn5b.DACin = note_sn5b;
 	dac_vrc7.DACin = note_vrc7;
 
+	reg_wr tas_key<8>;
 	// NESPAD : 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
 /*
 	nes.pad1P = (pad.data_cur<5> || pad.data_cur<7>
@@ -304,10 +319,11 @@ circuit core
 	          || (pad.data_ref<7> | pad.data_ref<5>) )
 				| psw_pad;
 */
-	nes.pad1P = psw_pad
-		 | (keys[0x74] || keys[0x6B] || keys[0x72] || keys[0x75] || keys[0x5A] || keys[0x29] || keys[0x1A] || keys[0x22]);
-	//プッシュスイッチでマリオ
-	psw_pad = (key_2 | SW<2>) || key_3 || 0b0 || SW<1> || SW<0> || SW<3> || 0b0 || key_1;
+	nes.pad1P =
+		//プッシュスイッチでマリオ
+		(key_2 || key_3 || SW<6> || SW<5> || SW<4> || 0b00 || key_1) |
+		(keys[0x74] || keys[0x6B] || keys[0x72] || keys[0x75] || keys[0x5A] || keys[0x29] || keys[0x1A] || keys[0x22]) |
+		tas_key;
 
 	nes.pad2P = 0x00;
 /*
@@ -399,9 +415,13 @@ circuit core
 		sram.write(cart.chr_ram_adrs, 0x00||cart.chr_ram_wdata);
 	}
 
-	instruct nes.NES_VIDEO_enable par{
+	instruct nes.VIDEO_enable par{
 		dis.write(nes.video);
 	}
+
+	reg_wr clock25M_div;
+	clock25M_div := ^clock25M_div;
+	if(clock25M_div /*& prg_read_ok*/) vga.run();
 
 	instruct vga.dis par{
 		if(dis_timing) dis.read();
@@ -434,10 +454,6 @@ circuit core
 		key_1 /*| pad.data_ref<1>*/ : par{ // 戻る
 			generate key_seek.back();
 		}
-	}
-
-	instruct fat.sread par{
-		sdcard.read(fat.sadrs);
 	}
 
 	instruct vjtag.recv par{
@@ -493,14 +509,6 @@ circuit core
 		}
 	}
 
-	stage clock25M {
-		par{
-			clock25M_div := ^clock25M_div;
-			if(clock25M_div /*& prg_read_ok*/) vga.run();
-			if(0b0) finish; // 未使用
-		}
-	}
-
 	stage key2btn {
 		reg_ws push;
 		par{
@@ -540,10 +548,15 @@ circuit core
 	}
 
 	stage card2ram {
-		first_state rbegin;
+		first_state iwait;
+		state iwait par{
+			reg_wr count<26>;
+			count++;
+			if(/&count) goto rbegin;
+		}
 		state rbegin if(fat.ack){
 			prg_read_ok := 0b0;
-			fat.fopen(file_num);
+			fat.fopen(0x0||SW<3:0>);//file_num);
 			goto fatr;
 		}
 		state fatr if(fat.ack){
@@ -565,7 +578,7 @@ circuit core
 		}
 		state reopen if(fat.ack){
 			nes.mem_clear();
-			fat.fopen(file_num);
+			fat.fopen(0x0||SW<3:0>);//file_num);
 			goto maps;
 		}
 		state maps if(fat.ack & cart.ack & sram.ack & sdram.ack){
@@ -578,8 +591,76 @@ circuit core
 			nes.soft_reset();
 			cart.soft_reset();
 			prg_read_ok := 0b1;
+			if(SW<8>) generate tas_stg.do();
 			goto rbegin;
 			finish;
+		}
+	}
+
+	stage tas_stg {
+		reg_wr tas_file_type<3>;
+		mem tas_buf[32];
+		first_state st_open;
+		state st_open if(fat.ack){
+			fat.fopen((0x0||SW<3:0>)+1);//file_num + 1);
+			goto st_type;
+		}
+		state st_type if(fat.ack){
+			fat.read();
+			if(fat.fdata=='['){ // bk2
+				tas_file_type := 3;
+				goto st_head;
+			}
+			if(fat.fdata=='v'){ // fm2
+				tas_file_type := 4;
+				goto st_head;
+			}
+		}
+		state st_head if(fat.ack){
+			fat.read();
+			if(fat.fdata==0x0A){ // \n
+				reg_wr lf_count<4>;
+				if((tas_file_type==3) & (lf_count== 1)) goto st_input;
+				if((tas_file_type==4) & (lf_count==13)) goto st_input;
+				lf_count++;
+			}
+		}
+		state st_input if(fat.ack){
+			reg_wr buf_i<5>;
+			tas_buf[buf_i] := fat.fdata!='.';
+			fat.read();
+			if(fat.fdata==0x0A){ // \n
+				buf_i := 0;
+				goto st_key;
+			}
+			else buf_i++;
+			if(fat.eof) finish; // TAS end
+		}
+		state st_key if(vga.nes_vsync){
+			// Pad 右|左|下|上|ｽﾀｰﾄ|ｾﾚｸﾄ|B|A
+			if(tas_file_type==3){
+				tas_key :=
+					tas_buf[ 7] || // Right
+					tas_buf[ 6] || // Left
+					tas_buf[ 5] || // Down
+					tas_buf[ 4] || // Up
+					tas_buf[ 8] || // Start
+					tas_buf[ 9] || // Select
+					tas_buf[10] || // B
+					tas_buf[11];   // A
+			}
+			if(tas_file_type==4){
+				tas_key :=
+					tas_buf[ 3] || // Right
+					tas_buf[ 4] || // Left
+					tas_buf[ 5] || // Down
+					tas_buf[ 6] || // Up
+					tas_buf[ 7] || // Start
+					tas_buf[ 8] || // Select
+					tas_buf[ 9] || // B
+					tas_buf[10];   // A
+			}
+			goto st_input;
 		}
 	}
 
@@ -589,7 +670,7 @@ circuit core
 		state rbegin par{
 			prg_read_ok := 0b0;
 			nes.mem_clear();
-			cart.set_map(vjtag.recv_data); // Mapper ID
+			cart.set_type(vjtag.recv_data); // Mapper ID
 			goto maps;
 		}
 		state maps par{

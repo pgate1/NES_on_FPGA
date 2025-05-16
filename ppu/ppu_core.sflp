@@ -136,8 +136,7 @@ reg_wr hhh;
 
 	view_enable = f_bg_enable | f_spr_enable;
 
-	o_NMI = f_NMI_enable & f_vblank & ^first_nmi_disable; // 通常のNES ?
-//	o_NMI = NMI_reg; // test
+	o_NMI = f_NMI_enable & NMI_reg & f_vblank & ^first_nmi_disable;
 
 	if(read | write) PA_reg := PA;
 	else PA = PA_reg;
@@ -220,6 +219,8 @@ if(^hhh) halt(0x45);
 		any{
 			A==0b000 : par{ // $2000
 				f_NMI_enable := Din<7>; // 即
+				// f_vblankならグラディウス2でがくがくしない
+				if(^f_NMI_enable & Din<7> & f_vblank) NMI_reg := 0b1;
 				f_spr_size := Din<5>; // 即
 				f_bg_pat_base := Din<4>; // 即（ライン）
 				f_spr_pat_base := Din<3>; // 即（ライン）
@@ -339,7 +340,7 @@ if(^hhh) halt(0x45);
 		}
 		state vb_nmi par{ // 241 (1)
 			scanline := 241;
-			f_vblank := 0b1; // to NMI
+			f_vblank := 0b1; // to $2002<7>
 			if(f_NMI_enable & ^first_nmi_disable) NMI_reg := 0b1;
 			vbline := 0b00001;
 			goto vb_in;
