@@ -52,24 +52,24 @@ circuit triangle_ch
 
 	instruct write par{
 		switch(adrs){
-			case 0b00 : par{	// $4008 Tri Ctrl
+			case 0b00 : par{ // $4008 Tri Ctrl
 				linear_ctrl := din<7>;
 				linear_load := din<6:0>;
 				len.halt(din<7>);
 			//	if(/|din<6:0>) note_on();
 				if(din<6:0>==0b0000000) old_period := 0;
 			}
-			case 0b01 : ; // 未使用
-			case 0b10 : par{	// $400A Tri Freq 1
+			case 0b01 : ; // $4009 未使用
+			case 0b10 : par{ // $400A Tri Freq 1
 				period_low := din;
 			//	if(/|din) note_on();
 			}
-			case 0b11 : par{	// $400B Tri Freq 2
+			case 0b11 : par{ // $400B Tri Freq 2
 				period_high := din<2:0>;
 				linear_start := 0b1;
 			//	len.set(length_max);
 				generate length_set.do();
-				if((/|period_low | /|din<2:0>) & ((din<2:0>||period_low)!=old_period)){
+				if((/|period_low | /|din<2:0>) & ((din<2:0> || period_low)!=old_period)){
 					note_on();
 				}
 				old_period := din<2:0> || period_low;
@@ -125,7 +125,6 @@ circuit triangle_ch
 	// 240Hz
 	stage LinearCounter {
 		par{
-			finish;
 			alt{
 				linear_start : par{
 					linear_count := linear_load;
@@ -135,14 +134,15 @@ circuit triangle_ch
 					linear_count--;
 				}
 			}
+			finish;
 		}
 	}
 
 	// 周波数カウンタへの書き込みでリセットされることはない
 	stage TriSequencer {
 		par{
-			finish;
 			tri_vol++;
+			finish;
 		}
 	}
 

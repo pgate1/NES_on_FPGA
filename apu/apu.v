@@ -1,0 +1,11 @@
+
+`include "envelope_generator.v"
+`include "length_counter.v"
+`include "timer_unit.v"
+`include "delta_modulation_ch.v"
+`include "noise_ch.v"
+`include "square_ch.v"
+`include "triangle_ch.v"
+`include "delay_unit.v"
+`include "length_rom.v"
+`include "AudioProcessingUnit.v"

@@ -27,4 +27,4 @@ Ver.20250413
 ==============================================================
 転載及び販売を禁止しています。
 Web https://pgate1.at-ninja.jp
-X(Twitter) https://twitter.com/pgate1
+X(Twitter) https://x.com/pgate1

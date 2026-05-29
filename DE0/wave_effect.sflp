@@ -44,7 +44,7 @@ circuit wave_effect
 		if(f_wave){
 			if(wave_count<5:0>==0b000000) sum += 0x00 || sound;
 		//	wave_write(wave_count<12:4>, sound - average);
-			wave_write(wave_count<12:4>, (^sound<7>)||sound<6:0>);
+			wave_write(wave_count<12:4>, (^sound<7>) || sound<6:0>);
 		}
 	}
 

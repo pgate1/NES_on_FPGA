@@ -1,0 +1,146 @@
+
+/*
+	Mapper 073
+	Konami VRC3 沙羅曼蛇
+		PRG-ROM 16KB × 8
+		CHR-RAM 8KB
+*/
+
+circuit Mapper073
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read, chr_write; // RDn, WEn
+	input chr_A<14>, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+
+	instrout exp_ram_read(exp_ram_adrs);
+	output exp_ram_adrs<13>; // EXP_RAM 8KB
+	input exp_ram_dout<8>;
+	instrout exp_ram_write(exp_ram_adrs, exp_ram_din);
+	output exp_ram_din<8>;
+
+	// 外部RAMへのアクセス
+	instrout prg_mem_read(prg_mem_adrs);
+	output prg_mem_adrs<17>; // PRG_ROM 128KBまで
+	input prg_mem_dout<8>;
+
+	instrout chr_mem_read(chr_mem_adrs);
+	output chr_mem_adrs<13>; // CHR_RAM 8KB
+	input chr_mem_dout<8>;
+	instrout chr_mem_write(chr_mem_adrs, chr_mem_din);
+	output chr_mem_din<8>;
+
+	instrin init;//, hblank;
+
+	input fMirroringType;
+
+	reg prg_bank<3>;
+
+	instrself map_prgrom, map_expram;
+
+	reg_ws IRQn_reg;
+
+	reg irq_enable, irq_counter<16>, irq_reload<16>;
+
+	if(ROM_SELn==0b0){
+		map_prgrom();
+	}
+	else any{
+	//	prg_A<14:13>==0b10 : map_exprom();
+		prg_A<14:13>==0b11 : map_expram();
+	}
+
+	any{
+		map_prgrom : prg_Dout = prg_mem_dout;
+		map_expram : prg_Dout = exp_ram_dout;
+	}
+
+	VRAM_CSn = ^chr_A<13>;
+
+	if(fMirroringType){
+		// 水平スクロールタイプ
+		VRAM_A10 = chr_A<10>;
+	}
+	else{
+		// 垂直スクロールタイプ
+		VRAM_A10 = chr_A<11>;
+	}
+
+	chr_Dout = chr_mem_dout;
+
+	IRQn = IRQn_reg;
+
+	usound = // <11>
+	   0b00000000000;
+
+	ssound = // <14s>
+	   0b00000000000000;
+
+	instruct init par{
+		prg_bank := 0;
+		irq_enable := 0b0;
+		irq_counter := 0;
+		irq_reload := 0;
+		IRQn_reg := 0b1;
+	}
+
+	instruct prg_read any{
+		map_prgrom : par{
+			if(prg_A<14>==0b0) prg_mem_read(prg_bank || prg_A<13:0>);
+			else               prg_mem_read(0b111 || prg_A<13:0>);
+		}
+		map_expram : exp_ram_read(prg_A<12:0>);
+	}
+
+	instruct prg_write any{
+		map_prgrom : switch(prg_A<14:12>){
+			case 0b000: irq_reload := irq_reload<15:4> || prg_Din<3:0>;
+			case 0b001: irq_reload := irq_reload<15:8> || prg_Din<3:0> || irq_reload<3:0>;
+			case 0b010: irq_reload := irq_reload<15:12> || prg_Din<3:0> || irq_reload<7:0>;
+			case 0b011: irq_reload := prg_Din<3:0> || irq_reload<11:0>;
+			case 0b100: par{
+				irq_enable := prg_Din<1>;
+				if(prg_Din<1>) irq_counter := irq_reload;
+				IRQn_reg := 0b1;
+			}
+			case 0b101: IRQn_reg := 0b1;
+		//	case 0b110: ;
+			case 0b111: prg_bank := prg_Din<2:0>;
+		}
+		map_expram : exp_ram_write(prg_A<12:0>, prg_Din);
+	}
+
+	instruct chr_read par{
+		if(chr_A<13>==0b0){
+			chr_mem_read(chr_A<12:0>);
+		}
+	}
+
+	instruct chr_write par{
+		if(chr_A<13>==0b0){
+			chr_mem_write(chr_A<12:0>, chr_Din);
+		}
+	}
+
+	instruct Phi par{
+		if(irq_enable){
+			if(irq_counter==0){
+				irq_counter := irq_reload;
+				IRQn_reg := 0b0;
+			}
+			else irq_counter++;
+		}
+	}
+
+}

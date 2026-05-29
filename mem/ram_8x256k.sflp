@@ -2,10 +2,6 @@
 // RAM
 // 8 bit 256k depth
 
-// 8k <13>
-// 16k <14>
-// 32k <15>
-
 circuit ram_8x256k
 {
 	input adrs<18>, din<8>;

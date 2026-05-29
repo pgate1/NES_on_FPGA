@@ -9,9 +9,17 @@ module Mapper_enable
 			case (i)
 				0
 				, 1, 2, 3, 4
+				, 5
+				, 10
 				, 12 // NSF
+				, 16
+				, 19
+				, 23
 				, 25
-				, 73 
+				, 69
+				, 73
+				, 80
+				, 118
 				:
 					assign enable[i] = 1'b1;
 				default:

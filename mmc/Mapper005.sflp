@@ -1,0 +1,394 @@
+
+/*
+	Mapper 005
+	MMC5 とりあえずジャストブリード
+		PRG-ROM 16KB banks 32 max 512KB
+		CHR-ROM 8KB banks 64 max 512KB
+*/
+
+declare mul_u8 interface
+{
+	input a<8>, b<8>;
+	output dout<16>;
+	instrin con;
+	instr_arg con(a, b);
+}
+
+circuit Mapper005
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	reg prg_Dout_reg<8>;
+	instrout prg_ack;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read;//, chr_write;
+	input chr_A<14>;//, chr_Din<8>;
+	output chr_Dout<8>;
+	reg chr_dout_reg<8>;
+	output VRAM_CSn, VRAM_A10;
+
+	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+
+	reg_wr exp_rom_ack_wait;
+
+	instrout exp_ram_read(exp_ram_adrs);
+	output exp_ram_adrs<13>; // EXP_RAM 8KB
+	input exp_ram_dout<8>;
+	instrout exp_ram_write(exp_ram_adrs, exp_ram_din);
+	output exp_ram_din<8>;
+
+	// 外部RAMへのアクセス
+	instrout prg_mem_read(prg_mem_adrs);
+	output prg_mem_adrs<19>; // PRG_ROM max 512KB
+	input prg_mem_dout<8>;
+
+	instrout chr_mem_read(chr_mem_adrs);
+	output chr_mem_adrs<19>; // CHR_ROM max 512KB
+	input chr_mem_dout<8>;
+//	instrout chr_mem_write(chr_mem_adrs, chr_mem_din);
+//	output chr_mem_din<8>;
+
+	instrin init;
+
+	input n16kRomBanks<6>, n8kVRomBanks<7>, fMirroringType;
+	reg fMirroringType_reg;
+
+	reg prg_bank4<6>, prg_bank5<6>, prg_bank6<6>, prg_bank7<6>;
+	reg chr_bank_a0<10>, chr_bank_a1<10>, chr_bank_a2<10>, chr_bank_a3<10>;
+	reg chr_bank_a4<10>, chr_bank_a5<10>, chr_bank_a6<10>, chr_bank_a7<10>;
+	reg chr_bank8<10>, chr_bank9<10>, chr_bank10<10>, chr_bank11<10>;
+
+	instrself map_prgrom, map_exprom, map_expram;
+
+	// 拡張RAMはCPUとPPU両方からアクセスされる
+	// とりあえずDualPortとする
+	mem ext_ram[1024]<8>;
+	instrself ext_ram_write(ext_ram_write_adrs, ext_ram_din);
+	sel ext_ram_write_adrs<10>, ext_ram_din<8>;
+	instrself ext_ram_read(ext_ram_read_adrs);
+	sel ext_ram_read_adrs<10>;
+	reg ext_ram_dout<8>;
+	reg_wr ext_ram_ack_wait;
+
+	reg_wr prg_size<2>, chr_size<2>;
+	reg_wr graphic_mode<2>, d5130<2>;
+	reg mult_a<8>, mult_b<8>;
+	mul_u8 mul;
+	reg sram_we_a<2>, sram_we_b<2>;
+//	reg_wr fSaveRAMenable;
+	reg_ws IRQn_reg;
+
+	instrself map_rom, map_exrom, map_exram;
+
+	reg_wr mmc5_prg_size<2>, mmc5_chr_size<2>;
+//	reg_wr fSaveRAMenable;
+	reg_ws IRQn_reg;
+
+	reg pre_chr_A12;
+	instrself hblank;
+	reg irq_enable, irq_status<8>, irq_scanline<8>, irq_line<8>, irq_clear;
+
+	sel pA<16>;
+
+	if(ROM_SELn==0b0){ // $8000-$FFFF
+		map_prgrom();
+	}
+	else any{
+		prg_A<14:13>==0b10 : map_exprom(); // $4000-$5FFF
+		prg_A<14:13>==0b11 : map_expram(); // $6000-$7FFF
+	}
+
+	any{
+		map_exprom : par{
+			if(exp_rom_ack_wait){
+				if(ext_ram_ack_wait){
+					prg_Dout = ext_ram_dout;
+					ext_ram_ack_wait := 0b0;
+				}
+				else prg_Dout = prg_Dout_reg;
+				exp_rom_ack_wait := 0b0;
+				prg_ack();
+			}
+			else prg_Dout = prg_Dout_reg;
+		}
+		map_prgrom : prg_Dout = prg_mem_dout;
+		map_expram : prg_Dout = exp_ram_dout;
+	}
+
+	pA = (^ROM_SELn) || prg_A;
+
+	any{
+		chr_A<11:10>==0b00 : VRAM_A10 = chr_bank8<0>;
+		chr_A<11:10>==0b01 : VRAM_A10 = chr_bank9<0>;
+		chr_A<11:10>==0b10 : VRAM_A10 = chr_bank10<0>;
+		chr_A<11:10>==0b11 : VRAM_A10 = chr_bank11<0>;
+	}
+
+	// chr_bank<10> + chr_A<10> = <20>(19)
+	sel chr_read_bank<10>;
+	switch(chr_A<12:10>){
+		case 0b000: chr_read_bank = chr_bank_a0;
+		case 0b001: chr_read_bank = chr_bank_a1;
+		case 0b010: chr_read_bank = chr_bank_a2;
+		case 0b011: chr_read_bank = chr_bank_a3;
+		case 0b100: chr_read_bank = chr_bank_a4;
+		case 0b101: chr_read_bank = chr_bank_a5;
+		case 0b110: chr_read_bank = chr_bank_a6;
+		case 0b111: chr_read_bank = chr_bank_a7;
+	}
+
+	if(chr_A<13:12>==0b10){
+		if(chr_A<9:6>==0b1111){ // 属性テーブル
+			VRAM_CSn = 0b1;
+			chr_Dout = chr_dout_reg;
+		}
+		else{ // ネームテーブル
+			VRAM_CSn = 0b0;
+		}
+	}
+	if(chr_A<13>==0b0){ // パターン
+		VRAM_CSn = 0b1;
+		chr_Dout = chr_mem_dout;
+	}
+
+	IRQn = IRQn_reg;
+
+	usound = // <11>
+	   0b00000000000;
+
+	ssound = // <14s>
+	   0b00000000000000;
+
+	instruct ext_ram_write ext_ram[ext_ram_write_adrs] := ext_ram_din;
+	instruct ext_ram_read ext_ram_dout := ext_ram[ext_ram_read_adrs];
+
+	instruct init par{
+		prg_bank4 := (n16kRomBanks - 0b000001)<4:0> || 0b1;
+		prg_bank5 := (n16kRomBanks - 0b000001)<4:0> || 0b1;
+		prg_bank6 := (n16kRomBanks - 0b000001)<4:0> || 0b1;
+		prg_bank7 := (n16kRomBanks - 0b000001)<4:0> || 0b1;
+		chr_bank_a0 := 0;
+		chr_bank_a1 := 1;
+		chr_bank_a2 := 2;
+		chr_bank_a3 := 3;
+		chr_bank_a4 := 4;
+		chr_bank_a5 := 5;
+		chr_bank_a6 := 6;
+		chr_bank_a7 := 7;
+		chr_bank8 := 0;
+		chr_bank9 := 0;
+		chr_bank10 := 0;
+		chr_bank11 := 0;
+		fMirroringType_reg := fMirroringType;
+		sram_we_a := 0b00;
+		sram_we_b := 0b00;
+		d5130 := 0b00;
+		tile_bank := 0;
+		irq_enable := 0;
+		irq_counter := 0;
+		irq_line := 0;
+		scan_cycles := 0;
+		irq_inframe := 0b0;
+		irq_pending := 0b0;
+		IRQn_reg := 0b1;
+	}
+
+	mul.con(mult_a, mult_b);
+
+	instruct prg_read any{
+		map_exprom : par{
+			any{
+				pA==0x5015 : ; // sound
+				pA==0x5204 : par{
+					prg_Dout_reg := irq_pending || irq_inframe || 6#0b0;
+					irq_pending := 0b0;
+					IRQn_reg := 0b1;
+				}
+				pA==0x5205 : par{ // 乗算結果下位8bit
+					prg_Dout_reg := mul.dout<7:0>;
+				}
+				pA==0x5206 : par{ // 乗算結果上位8bit
+					prg_Dout_reg := mul.dout<15:8>;
+				}
+				pA<15:10>==0b010111 : par{ // $5C00-$5FFF 0b0101_11--
+					if(graphic_mode<1>){ // mode >= 2
+						ext_ram_read(prg_A<9:0>);
+					}
+					ext_ram_ack_wait := 0b1;
+				}
+			}
+			exp_rom_ack_wait := 0b1;
+		}
+		map_prgrom : par{
+			// prg_bank<6> + prg_A<13> = <19>
+			sel prg_read_bank<6>;
+			switch(prg_A<14:13>){
+				case 0b00: prg_read_bank = prg_bank4;
+				case 0b01: prg_read_bank = prg_bank5;
+				case 0b10: prg_read_bank = prg_bank6;
+				case 0b11: prg_read_bank = prg_bank7;
+			}
+			prg_mem_read(prg_read_bank || prg_A<12:0>);
+
+			if(pA<15:1>==(0xFFFA)<15:1>){ // $FFFA $FFFB
+				irq_pending := 0b0;
+				irq_inframe := 0b0;
+				irq_counter := 0;
+				IRQn_reg := 0b1;
+				irq_reset();
+			}
+		}
+		map_expram : exp_ram_read(prg_A<12:0>);
+	}
+
+	instruct prg_write any{
+		map_exprom : any{
+			pA==0x5100 : prg_size := prg_Din<1:0>;
+			pA==0x5101 : chr_size := prg_Din<1:0>;
+			pA==0x5102 : sram_we_a := prg_Din<1:0>;
+			pA==0x5103 : sram_we_b := prg_Din<1:0>;
+			pA==0x5104 : graphic_mode := prg_Din<1:0>;
+			pA==0x5105 : par{
+				chr_bank8  := 0x00 || prg_Din<1:0>;
+				chr_bank9  := 0x00 || prg_Din<3:2>;
+				chr_bank10 := 0x00 || prg_Din<5:4>;
+				chr_bank11 := 0x00 || prg_Din<7:6>;
+			}
+			pA==0x5106 : ;
+			pA==0x5107 : ;
+			pA==0x5113 : par{
+//SetBank_SRAM(3, data & 0x07);
+//	if(sram_size == 0 ) data = (data > 3) ? 8 : 0; // 16kByte
+//	if(sram_size == 1 ) data = (data > 3) ? 1 : 0; // 32kByte
+//	if(sram_size == 2 ) data = (data > 3) ? 8 : data; // 64kByte
+//	if(sram_size == 3 ) data = (data > 3) ? 4 : data; // 128kByte ?
+				
+			}
+			pA<15:2>==0b0101_0001_0001_01 : par{ // $5114 $5115 $5116 $5117
+//		PRGBanks[adrs & 3] = data;
+//		MMC5PRG();
+				any{
+					prg_size<1:0>==0 : par{
+					}
+					prg_size<1:0>==1 : par{
+					}
+					prg_size<1:0>==2 : par{
+					}
+					prg_size<1:0>==3 : par{
+						if((pA<1:0>==0) & prg_Din<7>) prg_bank4 := prg_Din<5:0>;
+						if((pA<1:0>==1) & prg_Din<7>) prg_bank5 := prg_Din<5:0>;
+						if((pA<1:0>==2) & prg_Din<7>) prg_bank6 := prg_Din<5:0>;
+						if((pA<1:0>==3) & prg_Din<7>) prg_bank7 := prg_Din<5:0>;
+					}
+				}
+			}
+			pA<15:3>==0b0101_0001_0010_0 : par{ // $5120 $5121 $5122 $5123 $5124 $5125 $5126 $5127
+			//	chrbank_ABmode := 0b0;
+				any{
+					chr_size<1:0>==0 : ;
+					chr_size<1:0>==1 : ;
+					chr_size<1:0>==2 : ;
+					chr_size<1:0>==3 : par{
+						switch(pA<2:0>){
+							case 0: chr_bank_a0 := d5130 || prg_Din;
+							case 1: chr_bank_a1 := d5130 || prg_Din;
+							case 2: chr_bank_a2 := d5130 || prg_Din;
+							case 3: chr_bank_a3 := d5130 || prg_Din;
+							case 4: chr_bank_a4 := d5130 || prg_Din;
+							case 5: chr_bank_a5 := d5130 || prg_Din;
+							case 6: chr_bank_a6 := d5130 || prg_Din;
+							case 7: chr_bank_a7 := d5130 || prg_Din;
+						}
+					}
+				}
+			}
+			pA<15:2>==0b0101_0001_0010_10 : par{ // $5128 $5129 $512A $512B
+			//	chrbank_ABmode := 0b1;
+/*
+				any{
+					chr_size<1:0>==0 : ;
+					chr_size<1:0>==1 : ;
+					chr_size<1:0>==2 : ;
+					chr_size<1:0>==3 : par{
+						switch(pA<1:0>){
+							case 0: chr_bank_b0 := d5130 || prg_Din;
+							case 1: chr_bank_b1 := d5130 || prg_Din;
+							case 2: chr_bank_b2 := d5130 || prg_Din;
+							case 3: chr_bank_b3 := d5130 || prg_Din;
+						}
+					}
+				}
+*/
+			}
+			pA==0x5130 : d5130 := prg_Din<1:0>;
+			pA==0x5200 : ;//split_control := prg_Din;
+			pA==0x5201 : ;
+			pA==0x5202 : ;
+			pA==0x5203 : par{
+				irq_line := prg_Din;
+			}
+			pA==0x5204 : par{
+				irq_enable := prg_Din<7>;
+				if(prg_Din<7>==0b0) IRQn_reg := 0b1;
+				if(prg_Din<7> & irq_pending) IRQn_reg := 0b0;
+			}
+			pA==0x5205 : mult_a := prg_Din;
+			pA==0x5206 : mult_b := prg_Din;
+			pA<15:10>==0b0101_11 : par{ // $5C00-$5FFF 0b0101_11--
+				if(graphic_mode==2){
+					ext_ram_write(prg_A<9:0>, prg_Din);
+				}
+				else{
+					if(graphic_mode!=3){
+						if(irq_inframe){
+							ext_ram_write(prg_A<9:0>, prg_Din);
+						}
+						else{
+							ext_ram_write(prg_A<9:0>, 0x00);
+						}
+					}
+				}
+			}
+		}
+	//	map_prgrom : ;
+		map_expram : par{
+			if((sram_we_a==0b10) & (sram_we_b==0b01)){
+				exp_ram_write(prg_A<12:0>, prg_Din);
+			}
+		}
+	}
+
+	instruct chr_read par{
+		if(chr_A<13>==0b0){
+			chr_ram_read(chr_read_bank || chr_A<9:0>);
+		}
+
+		if(chr_A<12> & (pre_chr_A12==0b0)) hblank();
+		pre_chr_A12 := chr_A<12>;
+	}
+
+	instruct hblank par{
+
+		if(0b1/*line < 240*/){
+			irq_scanline++;
+			irq_status := irq_status | 0x40;
+			irq_clear := 0;
+		}
+/*
+		if(irq_enable){
+			if(irq_counter==0x01){
+				irq_counter := irq_latch;
+				IRQn_reg := 0b0;
+			}
+			else irq_counter--;
+		}
+*/
+	}
+
+}

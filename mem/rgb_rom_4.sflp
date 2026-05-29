@@ -2,10 +2,11 @@
 // RGB ROM
 // 4 bit color x 3 = 64 color max
 
-circuit rgb_rom_4
+circuit RGB_rom_4
 {
 	input adrs<6>;
 	output dout<12>;
+	reg dout_reg<12>;
 	instrin read(adrs);
 
 	mem cells[64]<12> = {
@@ -18,8 +19,6 @@ circuit rgb_rom_4
 		0xFFF, 0x8BF, 0xBBF, 0xDBF, 0xFBE, 0xFBC, 0xFCB, 0xFCA, 
 		0xFDA, 0xCE9, 0xAEB, 0xAFE, 0xBEF, 0xDDD, 0x111, 0x111
 	};
-
-	reg dout_reg<12>;
 
 	instruct read dout_reg := cells[adrs];
 	dout = dout_reg;

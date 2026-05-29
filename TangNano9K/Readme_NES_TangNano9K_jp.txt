@@ -8,8 +8,8 @@ NES mapper 0,1,2,3,4,73 を実装しています。
 
 ・使用方法
 
-microSDカードにROMを書き込んで、Tang Nano 9K にセットしてください。
-microSDカードは32MB～2GBのFAT16でフォーマットされたものをサポートしています。
+microSDHCカードにROMを書き込んで、Tang Nano 9K にセットしてください。
+microSDHCカードは4～32GBのFAT32でフォーマットされたものをサポートしています。
 
 Tang Nano 9K とPCをUSBケーブルで接続後、
 NES.fsをSRAMモードで書き込んでください。
@@ -27,4 +27,4 @@ Ver.20240102
 ==============================================================
 転載及び販売を禁止しています。
 Web https://pgate1.at-ninja.jp
-X(Twitter) https://twitter.com/pgate1
+X(Twitter) https://x.com/pgate1

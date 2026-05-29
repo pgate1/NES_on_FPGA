@@ -2,7 +2,7 @@
 // RGB ROM & to VGA Flip Buffer
 
 %i "../mem/ram_15x256.h"
-%i "../mem/rgb_rom_5.h"
+%i "../mem/RGB_rom_5.h"
 
 circuit Display_5
 {
@@ -10,7 +10,7 @@ circuit Display_5
 	output r_out<5>, g_out<5>, b_out<5>;
 	instrin write(din), read, bank_change;
 
-	rgb_rom_5 colrom;
+	RGB_rom_5 colrom;
 	ram_15x256 ram0, ram1;
 	reg_wr radrs<8>, wadrs<8>, bank, read_ack;
 	reg col_reg<15>;

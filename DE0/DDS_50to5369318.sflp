@@ -1,24 +1,29 @@
 /*
  50MHzから約5,369,318Hzを生成する
- 加算値 218125:0x3540D  しきい値 2031217:0x1EFE71  誤差 0.000003Hz
+ カウンタ 26bit、加算値 2684659、最大値 25000000、誤差 0.0000000000
 */
+
+%d COUNT_WIDTH 26
 
 circuit DDS_50to5369318
 {
-	sel max<21>, add<18>;
-	reg_wr count<22>;
 	instrout run;
-	sel sa<22>;
 
-	add = 218125;
-	max = 2031217;
+	sel add<COUNT_WIDTH>;
+	sel max<COUNT_WIDTH>;
+	reg_wr count<COUNT_WIDTH>;
+	sel sa<COUNT_WIDTH>;
 
-	sa = count - (0b0||max);
-	if(sa<21>){ // count < max
-		count += (0b0000 || add);
+	add = 2684659;
+	max = 25000000;
+
+	sa = count - max;
+
+	if(sa<COUNT_WIDTH-1>){ // count < max
+		count += add;
 	}
 	else{
-		count := sa + (0b0000 || add);
+		count := sa + add;
 		run();
 	}
 }

@@ -35,7 +35,7 @@ circuit wave_effect
 			(f_wave==0b1) & /&wave_count<12:4> : f_wave := 0b0;
 			else : wave_count++;
 		}
-		if(f_wave) wave_write(wave_count<12:4>, (^sound<7>)||sound<6:0>);
+		if(f_wave) wave_write(wave_count<12:4>, (^sound<7>) || sound<6:0>);
 	}
 
 	instruct read par{

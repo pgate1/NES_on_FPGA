@@ -8,8 +8,8 @@ Mario1,3, DQ1,2,3,4, FF1,2,3, Kirby of the stars, Salamanda, etc.
 
 - Usage
 
-Write the ROM to the microSD card and insert it into the Tang Nano 9K.
-Supports microSD cards of 32MB to 2GB formatted in FAT16.
+Write the ROM to the microSDHC card and insert it into the Tang Nano 9K.
+Supports microSDHC cards of 4 to 32GB formatted in FAT32.
 
 After connecting Tang Nano 9K and PC with USB cable,
 Write NES.fs in SRAM mode.
@@ -27,4 +27,4 @@ Ver.20240102
 ==============================================================
 Reproduction and sale are prohibited.
 Web https://pgate1.at-ninja.jp
-X(Twitter) https://twitter.com/pgate1
+X(Twitter) https://x.com/pgate1

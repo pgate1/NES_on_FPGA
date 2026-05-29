@@ -25,7 +25,7 @@ circuit length_counter
 
 	instruct set par{
 	//	if(^f_halt)
-	//	if(^(enable & (f_ctrl==0b0)))
+	//	if(^(enable & ^f_ctrl))
 		length_count := len_max;
 	}
 
@@ -43,7 +43,7 @@ circuit length_counter
 
 	// 120Hz
 	instruct exc par{ // mpu.run + 1clk
-		if((^f_halt) & f_length & (^set) & (^enable)){
+		if(^f_halt & f_length & ^set & ^enable){
 			length_count--;
 		}
 	}

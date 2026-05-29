@@ -58,8 +58,8 @@ wire [7:0] rgb_r, rgb_g, rgb_b;
 reg audio_clk;
 wire [15:0] Audio [1:0];
 reg [15:0] s_Audio [1:0];
-// 24.975MHz‚©‚ç64kHzƒTƒCƒNƒ‹(32kHzƒNƒƒbƒN)‚ğ¶¬
-// ƒsƒNƒZƒ‹ƒNƒƒbƒN‚Æ‡‚í‚¹‚é‚±‚Æ
+// 24.975MHzã‹ã‚‰64kHzã‚µã‚¤ã‚¯ãƒ«(32kHzã‚¯ãƒ­ãƒƒã‚¯)ã‚’ç”Ÿæˆ
+// ãƒ”ã‚¯ã‚»ãƒ«ã‚¯ãƒ­ãƒƒã‚¯ã¨åˆã‚ã›ã‚‹ã“ã¨
 	localparam COUNT_WIDTH = 16;
 	wire [COUNT_WIDTH-1:0] add;
 	wire [COUNT_WIDTH-1:0] max;
@@ -78,7 +78,7 @@ reg [15:0] s_Audio [1:0];
 		else begin
 			count <= sa + add;
 			audio_clk <= ~audio_clk;
-			if(audio_clk) s_Audio <= Audio; // —§‚¿‰º‚ª‚è‚Åƒz[ƒ‹ƒh
+			if(audio_clk) s_Audio <= Audio; // ç«‹ã¡ä¸‹ãŒã‚Šã§ãƒ›ãƒ¼ãƒ«ãƒ‰
 		end
 	end
 
@@ -86,7 +86,7 @@ reg [15:0] s_Audio [1:0];
 		.CLOCK_FREQUENCY(24.975),
 	//	.SYNC_POLARITY("POSITIVE"),
 		.AUDIO_FREQUENCY(32.0),
-		.PCMFIFO_DEPTH(7) // 01:‰¹o‚È‚¢(ƒpƒ‹ƒXƒmƒCƒY),234:–³‰¹,56:‚É‚¿‚á?LUT‘‚¦‚é,7:SDPX9B‚ª1‚Â‘‚¦‚é,891011LUT‚à‘‚¦‚é
+		.PCMFIFO_DEPTH(7) // 01:éŸ³å‡ºãªã„(ãƒ‘ãƒ«ã‚¹ãƒã‚¤ã‚º),234:ç„¡éŸ³,56:ã«ã¡ã‚ƒ?LUTå¢—ãˆã‚‹,7:SDPX9BãŒ1ã¤å¢—ãˆã‚‹,891011LUTã‚‚å¢—ãˆã‚‹
 	) u_tx (
 		.reset      (sys_reset_124),
 		.clk        (pixel_clk),
@@ -101,11 +101,10 @@ reg [15:0] s_Audio [1:0];
 		.pcm_l      ({s_Audio[0], 8'b0}),
 		.pcm_r      ({s_Audio[1], 8'b0}),
 		.data       (tmds_dat_p),
-	//	.data_n     (tmds_dat_n),
-		.clock      (tmds_clk_p)
-	//	.clock_n    (tmds_clk_n)
+		.data_n     (tmds_dat_n),
+		.clock      (tmds_clk_p),
+		.clock_n    (tmds_clk_n)
 	);
-
 
 // Change PLL and here to choose another speed.
 localparam FREQ = 49_950_000;
@@ -168,7 +167,7 @@ wire [7:0] psram1_dout;
 
 wire [5:0] led;
 
-	core CU (
+	core core_inst (
 		.p_reset(sys_reset_249), .m_clock(pixel_clk),
 		.BTN(~button_n), .LED(led),
 		.psram0_adrs(psram0_adrs), .psram0_din(psram0_din),

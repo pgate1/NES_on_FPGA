@@ -8,7 +8,7 @@ DQ1,2,3,4, FF1,FF2,FF3など。
 NSF再生機能、各種拡張音源搭載(MMC5,N106,FDS,VRC6,SN5B,VRC7)。
 
 操作はPS/2キーボードを使用してください。
-SDカードは32MB～2GBのFAT16でフォーマットされたものをサポートしています。
+SDHCカードは4GB～32GBのFAT32でフォーマットされたものをサポートしています。
 
 ・操作
 
@@ -31,4 +31,4 @@ Ver.20170818
 ==============================================================
 転載及び販売を禁止しています。
 Web https://pgate1.at-ninja.jp
-Twitter https://twitter.com/pgate1
+X(Twitter) https://x.com/pgate1

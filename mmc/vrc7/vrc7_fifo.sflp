@@ -1,0 +1,150 @@
+
+// VRC7 VM2413 FIFO Interface
+
+declare vm2413_interface
+{
+	instrin run, ready;
+	input A, D<8>;
+	instrin write;
+	output sound<10>;
+	instr_arg write(A, D);
+}
+
+circuit vrc7_fifo
+{
+	instrin run, ready;
+
+	input A, D<8>;
+	instrin write(A, D);
+
+	mem fifo[256]<9>;
+	sel fifo_wadrs<8>, fifo_din<9>;
+	instrself fifo_write(fifo_wadrs, fifo_din);
+	sel fifo_radrs<8>;
+	instrself fifo_read(fifo_radrs);
+	reg_wr fifo_dout<9>;
+
+	reg_wr wadrs<8>, radrs<8>;
+
+	vm2413_interface vm2413inf;
+	reg_wr count<7>;
+
+	output sound<13>;
+	reg_wr sound_reg<13>;
+	instrout note_on;
+
+	stage_name opll_write { task do(); }
+	stage_name opll_sound { task do(); }
+
+	sound = sound_reg;
+//	sound = 0b000 || vm2413inf.sound;
+
+	instruct fifo_write fifo[fifo_wadrs] := fifo_din;
+	instruct fifo_read fifo_dout := fifo[fifo_radrs];
+
+// CPUサイクル約1.78MHz×2でwriteされる
+	instruct write par{
+		fifo_write(wadrs, A||D);
+		wadrs++;
+	}
+
+// VM2413の約3.5MHzで起動
+	instruct run par{
+		vm2413inf.run();
+		generate opll_write.do();
+		generate opll_sound.do();
+	}
+
+	instruct ready par{
+		radrs := 0x00;
+		wadrs := 0x00;
+		sound_reg := 13#0b0;
+		vm2413inf.ready();
+	}
+
+	stage opll_write {
+		first_state read_st;
+		finish;
+		state read_st par{
+		//	if(/|(radrs @ wadrs)){
+			if(radrs!=wadrs){ // sfl2vhで変換するとModelSimで構文エラー
+				fifo_read(radrs);
+				goto write_st;
+			}
+		}
+		state write_st par{
+			radrs++;
+			vm2413inf.write(fifo_dout<8>, fifo_dout<7:0>);
+
+			if(vm2413inf.A) count := 0b1000111; // 72-1
+// from doc.
+//			if(vm2413inf.A) count := 0b1010011; // 84-1
+//			else            count := 0b0001011; // 12-1
+			note_on();
+			goto wait_st;
+		}
+		state wait_st par{
+			if(count!=0) count--;
+			else goto read_st;
+		}
+	}
+
+	stage opll_sound {
+		sel vmsound_signed<10>;
+		reg_wr vmsound_signed_old<10>;
+		reg_wr sound_total<13>;
+		reg_wr chcount<7>;
+		par{
+			// -0x200 vm2413inf.soundを0～1023から-512～511に変換
+			vmsound_signed = ^vm2413inf.sound<9> || vm2413inf.sound<8:0>;
+/*
+// ウィンドウずれにより雑音が乗る
+			if(chcount==0b1000111){
+				sound_reg := sound_total<14:2>;
+				sound_total := 15#0b0;
+				chcount := 7#0b0;
+			}
+			else{
+				// <10s>×9ch×3st＝<15s>
+				sound_total += 15#vmsound_signed;
+				chcount++;
+			}
+*/
+/*
+// 1/4の確立で無音になる
+			if(chcount==0b1000111){
+				sound_reg := sound_total;
+				sound_total := 13#0b0;
+				chcount := 7#0b0;
+			}
+			else{
+				if(/&chcount<1:0>){
+					// 9ch分を符号拡張して加算
+					// nsfでは8chのみ使用 <10s>×8ch＝<13s>
+					sound_total += 13#vmsound_signed;
+				}
+				chcount++;
+			}
+*/
+// これがベスト、前サイクルで無音だったら加算
+			vmsound_signed_old := vmsound_signed;
+			if(chcount==0b1000111){
+				sound_reg := sound_total;
+				sound_total := 13#0b0;
+				chcount := 7#0b0;
+			}
+			else{
+				if(vmsound_signed_old==0){
+					// 9ch分を符号拡張して加算
+					// nsfでは8chのみ使用 <10s>×8ch＝<13s>
+					sound_total += 13#vmsound_signed;
+				//	if(vmsound_signed!=0) note_on();
+				}
+				chcount++;
+			}
+
+			finish;
+		}
+	}
+
+}

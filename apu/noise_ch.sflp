@@ -56,22 +56,22 @@ circuit noise_ch
 	timer.period = time_table(period_index).time_max;
 	f_length = len.f_length;
 
-	volume = env.count & (4#((^random_data<0>) & f_length));
+	volume = env.count & 4#(^random_data<0> & f_length);
 
 	instruct write par{
 		switch(adrs){
-			case 0b00 : par{	// $400C Noise Ctrl
+			case 0b00 : par{ // $400C Noise Ctrl
 				env.set(din<5:0>);
 				len.halt(din<5>);
 			}
 			case 0b01 : ; // $400D 未使用
-			case 0b10 : par{	// 0x400E Noise Freq 1
+			case 0b10 : par{ // $400E Noise Freq 1
 				f_random_mode := din<7>;
 				period_index := din<3:0>;
 			//	time_read(din<3:0>);
 			//	generate time_read_wait.do();
 			}
-			case 0b11 : par{	// 0x400F Noise Freq 2
+			case 0b11 : par{ // $400F Noise Freq 2
 				env.halt();
 			//	len.set(length_max);
 				// length_romから次のクロックで取得できる

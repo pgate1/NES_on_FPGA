@@ -67,23 +67,23 @@ dbg = rest_count<7:0>;
 
 	instruct write par{ // mpu.run+2clk
 		switch(adrs){
-			case 0b00 : par{	// DMC Ctrl 1
+			case 0b00 : par{ // $4010 DMC Ctrl 1
 				f_interrupt_enable := din<7>;
 				if((din<7>==0b0) & ^irq_setting) irq_reg := 0b0;
 				f_loop := din<6>;
 				period_index := din<3:0>;
 			}
-			case 0b01 : par{	// DMC Ctrl 2
+			case 0b01 : par{ // $4011 DMC Ctrl 2
 // DPCMは鳴らす前に$4011に初期値を書き込んでリセットしてやる必要がある。
 				delta_count := din<6:1>;
 				delta_count0 := din<0> & d7bit;
 				if(din<6:0>!=old_delta) note_on();
 				old_delta := din<6:0>;
 			}
-			case 0b10 : par{	// DMC Address
+			case 0b10 : par{ // $4012 DMC Address
 				start_adrs := din;
 			}
-			case 0b11 : par{	// DMC Data length
+			case 0b11 : par{ // $4013 DMC Data length
 				data_length := din;
 				if(/|din) note_on();
 			}
@@ -104,7 +104,7 @@ dbg = rest_count<7:0>;
 	//	timer.rst(); // これがあると少し音程が低くなるようだ
 	}
 
-	instruct ctrl par{ // write 0x4015 // mpu.run + 2clk
+	instruct ctrl par{ // write $4015 // mpu.run + 2clk
 		//if(^irq_setting) 
 
 		if(f_ctrl){
@@ -260,7 +260,7 @@ dbg = rest_count<7:0>;
 			}
 
 			out_data := 0b0 || out_data<7:1>;
-			if((^dma_adrs_length_set)){
+			if(^dma_adrs_length_set){
 				shift_count--;
 				if(shift_count==0){
 					buf_read_on := 0b1;

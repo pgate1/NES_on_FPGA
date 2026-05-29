@@ -1,0 +1,101 @@
+
+/*
+	Mapper 002
+	UxROM PRG mapper
+		PRG-ROM 16KB × 8 or 16 (or 32)
+		CHR-RAM 8KB
+*/
+
+circuit Mapper002
+{
+	// PRG-ROM
+	input ROM_SELn;
+	instrin prg_read, prg_write;
+	input prg_A<15>, prg_Din<8>;
+	output prg_Dout<8>;
+	output IRQn;
+
+	// CHR-ROM
+	instrin chr_read, chr_write; // RDn, WEn
+	input chr_A<14>, chr_Din<8>; // chr_A13n
+	output chr_Dout<8>;
+	output VRAM_CSn, VRAM_A10;
+
+//	instrin Phi; // 1.789MHz
+	output usound<11>, ssound<14>;
+
+	instrin init;
+
+	// 外部RAMへのアクセス
+	instrout prg_mem_read(prg_mem_adrs);
+//	output prg_mem_adrs<18>; // PRG_ROM 256KBまで
+	output prg_mem_adrs<19>; // PRG_ROM 512KBまで
+	input prg_mem_dout<8>;
+
+	instrout chr_mem_read(chr_mem_adrs);
+	output chr_mem_adrs<13>; // CHR_RAM 8KB
+	input chr_mem_dout<8>;
+	instrout chr_mem_write(chr_mem_adrs, chr_mem_din);
+	output chr_mem_din<8>;
+
+	input n16kRomBanks<6>, fMirroringType;
+	reg prg_bank<5>;
+
+	prg_Dout = prg_mem_dout;
+
+	// A<13>==1のときVRAM
+	VRAM_CSn = ^chr_A<13>;
+
+	if(fMirroringType){
+		// 水平スクロールタイプ
+		VRAM_A10 = chr_A<10>;
+	}
+	else{
+		// 垂直スクロールタイプ
+		VRAM_A10 = chr_A<11>;
+	}
+
+	chr_Dout = chr_mem_dout;
+
+	IRQn = 0b1;
+
+	usound = // <11>
+	   0b00000000000;
+
+	ssound = // <14s>
+	   0b00000000000000;
+
+	instruct init par{
+		prg_bank := 0;
+	}
+
+	instruct prg_read par{
+		if(ROM_SELn==0b0){
+			if(prg_A<14>==0b0) prg_mem_read(prg_bank || prg_A<13:0>);
+			else switch(n16kRomBanks<5:4>){
+				case 0b00: prg_mem_read(0b00111 || prg_A<13:0>); //  8 banks
+				case 0b01: prg_mem_read(0b01111 || prg_A<13:0>); // 16 banks
+				case 0b10: prg_mem_read(0b11111 || prg_A<13:0>); // 32 banks
+			}
+		}
+	}
+
+	instruct prg_write par{
+		if(ROM_SELn==0b0){
+			prg_bank := prg_Din<4:0>;
+		}
+	}
+
+	instruct chr_read par{
+		if(chr_A<13>==0b0){
+			chr_mem_read(chr_A<12:0>);
+		}
+	}
+
+	instruct chr_write par{
+		if(chr_A<13>==0b0){
+			chr_mem_write(chr_A<12:0>, chr_Din);
+		}
+	}
+
+}
