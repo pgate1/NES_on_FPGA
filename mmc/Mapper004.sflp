@@ -7,6 +7,8 @@
 		CHR-RAM
 */
 
+#define IRQ_DELAY 7 // for spr16 要調整
+
 circuit Mapper004
 {
 	// PRG-ROM
@@ -55,7 +57,7 @@ circuit Mapper004
 
 	reg prg_swap, chr_swap;
 	reg fSaveRAMenable;
-	reg IRQn_reg;
+	reg IRQn_reg<IRQ_DELAY+1>;
 	reg command<3>;
 
 	instrself hsync;
@@ -115,7 +117,7 @@ circuit Mapper004
 
 	chr_Dout = chr_mem_dout;
 
-	IRQn = IRQn_reg;
+	IRQn = IRQn_reg<IRQ_DELAY>;
 
 	usound = // <11>
 	   0b00000000000;
@@ -142,7 +144,7 @@ circuit Mapper004
 		irq_counter := 0;
 		irq_latch := 0;
 		irq_reload := 0b0;
-		IRQn_reg := 0b1;
+		IRQn_reg := -1;
 	}
 
 	instruct prg_read any{
@@ -197,19 +199,18 @@ circuit Mapper004
 					fSaveRAMenable := prg_Din<7>;
 				}
 				case 0b100: par{ // $C000
-					irq_counter := prg_Din;
-				}
-				case 0b101: par{ // $C001
 					irq_latch := prg_Din;
 				}
+				case 0b101: par{ // $C001
+					irq_counter := 0;
+					irq_reload := 0b1;
+				}
 				case 0b110: par{ // $E000
-				//	irq_counter := irq_latch;
-					irq_enabled := 0b0;
-					IRQn_reg := 0b1;
+					irq_enable := 0b0;
+					IRQn_reg := -1;
 				}
 				case 0b111: par{ // $E001
-					irq_enabled := 0b1;
-			//		IRQn_reg := 0b1;
+					irq_enable := 0b1;
 				}
 			}
 		}
@@ -220,10 +221,6 @@ circuit Mapper004
 		if(chr_A<13>==0b0){
 			chr_mem_read(chr_read_bank || chr_A<9:0>); // <8><10> 256 x 1kB
 		}
-
-		if(chr_A<13>==0b0) f_draw := 0b1;
-	//	if(chr_A<12> & ^pre_chr_A12) hblank_begin();
-		pre_chr_A12 := chr_A<12>;
 	}
 
 	instruct chr_write par{
@@ -231,36 +228,45 @@ circuit Mapper004
 			chr_mem_write(chr_read_bank || chr_A<9:0>, chr_Din);
 		}
 	}
-
-	instruct hblank par{
-
-	// VBlank中はIRQは発生させないこと
-	// vcountはVBlankから開始するでok
-	//	reg_wr vcount<8>;
-	//	reg_ws vblank;
 /*
-		any{
-			vblank & (vcount==0x15) : par{ // 21
-				vcount := 0x00;
-				vblank := 0b0;
-			}
-			(^vblank) & (vcount==0xEF) : par{ // 239
-				vcount := 0x00;
-				vblank := 0b1;
-			}
-			else : vcount++;
+	// A12の立ち上がりでHSyncとする（Phiでチェック）
+	// NTATでPPU4clk==CPU1clk+2clkで確実にしたい
+	// カービィでブレる
+	reg_wr chr_A12_low_count<2>;
+	sel count_max<2>;
+	count_max = 3; // nes.clk_out 50MHz:2NG 3ok 25MHz:3ok
+	instruct Phi par{
+		if(chr_A<12>==0b0){
+			if(chr_A12_low_count!=count_max) chr_A12_low_count++;
 		}
+		else chr_A12_low_count := 0;
+	}
 */
-//		if(irq_enabled & (^vblank)){
-		if(irq_enabled & f_draw){
-//		if(irq_enabled){
-			if(irq_counter==0x00){
-				irq_counter := irq_latch;
-				IRQn_reg := 0b0;
-			}
-			else irq_counter--;
+	// A12の立ち上がりでHSyncとする（chr_read or chr_writeでチェック）
+	reg_wr chr_A12_low_count<2>;
+	sel count_max<2>;
+	count_max = 3; // 50MHz:2NG 3ok 25MHz:3ok
+	if(chr_read | chr_write){// & (chr_A<13:12>!=0b11)){
+		if(chr_A<12>==0b0){
+			if(chr_A12_low_count!=count_max) chr_A12_low_count++;
 		}
-		f_draw := 0b0;
+		else chr_A12_low_count := 0;
+		if(IRQn_reg<0>==0b0) IRQn_reg <<= 1;
+	}
+
+	reg_wr pre_chr_A12;
+	pre_chr_A12 := chr_A<12>;
+	if(((chr_A<12> || pre_chr_A12)==0b10) & (chr_A12_low_count==count_max)) hsync();
+
+	instruct hsync par{
+		if((irq_counter==0) | irq_reload){
+			irq_counter := irq_latch;
+		}
+		else irq_counter--;
+		if((irq_counter==1) /*| (irq_reload & (irq_latch==0))*/){
+			if(irq_enable) IRQn_reg := -2; // 0b11110
+		}
+		irq_reload := 0b0;
 	}
 
 }

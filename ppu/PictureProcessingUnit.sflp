@@ -4,14 +4,14 @@
 %i "sprite_ram.h"
 %i "palette_ram.h"
 
-%d BG_PAT_NAME      0b0000
-%d BG_PAT_ATTRIBUTE 0b0001
-%d BG_PAT_LOW_TMP   0b0010
-%d BG_PAT_HIGH_TMP  0b0011
-%d SPR_PAT_LOW      0b0100
-%d SPR_PAT_HIGH     0b0101
-%d TMP_READ_2007    0b1000
-%d NONE             0b1001
+%d NONE            0b0000
+%d BG_NAME         0b0010
+%d BG_ATTRIBUTE    0b0011
+%d BG_PAT_LOW_TMP  0b0100
+%d BG_PAT_HIGH_TMP 0b0101
+%d SPR_PAT_LOW     0b1000
+%d SPR_PAT_HIGH    0b1001
+%d TMP_READ_2007   0b1111
 
 circuit PictureProcessingUnit
 {
@@ -35,7 +35,12 @@ circuit PictureProcessingUnit
 	sel read_id<4>;
 	reg read_id_reg<4>;
 
-	instrin soft_reset, draw;
+	instrin soft_reset, spr_ram_clear, draw;
+
+	instrin hblank;
+	reg_wr hsync_buf;
+	reg_wr bg_fetch_do, spr_search_do, spr_fetch_do, draw_do;
+	reg_ws vblank_do;
 
 	/* for VIDEO */
 	output VIDEO<6>;
@@ -53,50 +58,47 @@ circuit PictureProcessingUnit
 	/* config flags */
 	reg_wr f_NMI_enable, f_spr_size;
 	reg_wr f_bg_pat_base, f_spr_pat_base;
-	reg f_adrs_inc, name_id_t<2>;
+	reg_wr f_adrs_inc;
+	reg_wr name_id<2>, name_id_t<2>;
 
 	reg_wr f_spr_enable;//, f_spr_enable_tmp;
 	reg_wr f_bg_enable;//, f_bg_enable_tmp;
-	sel view_enable;
+	sel fetch_enable;
 	reg_wr f_bg_left_clip, f_spr_left_clip;
-	reg f_col_mono, spr_ram_adrs<8>;
+	reg_wr f_col_mono, spr_ram_adrs<8>;
 
-	reg bg_scroll_x<8>, bg_scroll_x_t<8>;
-	reg bg_scroll_y<8>, bg_scroll_y_t<8>;
+	reg_wr bg_scroll_x<8>, bg_scroll_x_t<8>;
+	reg_wr bg_scroll_y<8>, bg_scroll_y_t<8>;
+	instrself inc_chr_adrs;
+	sel bg_name_y<5>, bg_name_x<5>;
 
-	reg vx<8>;
-	reg_wr sprbuf_read_on, dummy_read_on;
+	reg scanline<9>;
+	reg bg_name_data<8> , bg_attr_data<8>, bg_attr_hl<2>;
+	reg bg_attr_high<16>, bg_attr_low<16>;
+	reg bg_pat_low<16> , bg_pat_low_tmp<8>;
+	reg bg_pat_high<16>, bg_pat_high_tmp<8>;
+
+	reg_wr spr_fetch_on;
 
 	sprite_ram spr_ram;
 	palette_ram pal_ram;
 
 	mem spr_tmp_y[8]<4>;
-	mem spr_tmp_id[8]<8>;
-	mem spr_tmp_at[8]<5>;
+	mem spr_tmp_idx[8]<8>;
+	mem spr_tmp_attr[8]<8>; // VHP000CC
 	mem spr_tmp_x[8]<8>;
 	mem spr_buf_patl[8]<8>;
 	mem spr_buf_path[8]<8>;
-	mem spr_buf_at[8]<3>;
+	mem spr_buf_attr[8]<8>; // VHP000CC
 	mem spr_buf_x[8]<8>;
 	reg_wr spr_zero_tmp, spr_zero;
 
-	mem spr_v[8];
+	reg_wr spr_buf_set<8>;
+	regs spr_draw_on[8];
 
-	reg spr_y<3>;
-	reg spr_pat_base, spr_pat_name<8>;
-//	reg_wr spr_pat_low<8>, spr_pat_high<8>;
-//	sel spr_pat_low_sel<8>, spr_pat_high_sel<8>;
-	reg spr_buf_set<8>;
-
-	instrself reset_act;
-	instrself read(read_id, PA), write(PA, PDout);
-
-	sel spr_tmp_y_s<4>, spr_tmp_id_s<8>;
-	sel spr_tmp_at_7_s;
-	instrself spr_get(spr_tmp_y_s, spr_tmp_id_s, spr_tmp_at_7_s);
-	sel spr_at_6, spr_pat_buf<8>, spr_pat_sel<8>;
-	instrself spr_inv(spr_at_6, spr_pat_buf), spr_xdown, spr_buf_shift;
 	reg buf_read<3>;
+	sel check_x<8>;
+	instrself spr_x_check(check_x);
 
 	instrself halt(h_code);
 	sel h_code<8>;
@@ -107,16 +109,17 @@ circuit PictureProcessingUnit
 	output f_nmi_en;
 	reg_ws first_nmi_disable;
 
+output dbg<8>;
+reg_wr dbg_reg<8>;
 reg_wr hhh;
 
-	stage_name FRAME { task do(); }
-	stage_name VBLANK { task do(); }
-	stage_name BG_MEM { task do(); }
-	stage_name SPR_MEM { task do(); }
-	stage_name SPR_BUF { task do(); }
-	stage_name BG_DRAW { task do(); }
-	stage_name pal_ram_read_wait { task do(); }
-	stage_name read_wait { task do(read_id_reg); }
+	stage_name Frame { task do(); }
+	stage_name VBlank { task do(); }
+	stage_name BG_Fetch { task do(); }
+	stage_name SPR_Search { task do(); }
+	stage_name SPR_Fetch { task do(); }
+	stage_name Draw { task do(); }
+	stage_name chr_read_wait { task do(read_id_reg); }
 
 	if(reset){
 		reset_act();
@@ -126,19 +129,27 @@ reg_wr hhh;
 	instruct reset_act par{
 		f_NMI_enable := 0b0;
 		f_vblank := 0b0;
+		vblank_do := 0b1;
+		bg_fetch_do := 0b0;
+		spr_search_do := 0b0;
+		spr_fetch_do := 0b0;
 		first_nmi_disable := 0b1;
 		NMI_reg := 0b0;
+		f_2005_2006 := 0b0;
 	}
 
 	instruct soft_reset par{
-		reset_act();
-	//	spr_ram.init();
+		reset := 0b1;
 	}
 
-	if(io_read) Dout_reg := Dout;
+	instruct spr_ram_clear par{
+		spr_ram.clear();
+	}
+
+	if(io_read_inst) Dout_reg := Dout;
 	else Dout = Dout_reg;
 
-	view_enable = f_bg_enable | f_spr_enable;
+	fetch_enable = f_bg_enable | f_spr_enable;
 
 	o_NMI = f_NMI_enable & NMI_reg & f_vblank & ^first_nmi_disable;
 
@@ -153,6 +164,8 @@ reg_wr hhh;
 
 	instruct halt halt_code_reg := h_code;
 	halt_code = halt_code_reg;
+
+dbg = dbg_reg;
 
 	instruct io_write par{
 		any{
@@ -199,7 +212,7 @@ reg_wr hhh;
 					bg_scroll_y   := bg_scroll_y_t<7:6> || Din<7:5> || bg_scroll_y_t<2:0>;
 				}
 				else{ // first write
-					chr_adrs := Din<5:0> || 0x00;
+					chr_adrs := Din<5:0> || chr_adrs<7:0>;
 
 					name_id_t := Din<3:2>;
 					bg_scroll_y_t := Din<1:0> || bg_scroll_y_t<5:3> || 0b0 || Din<5:4>;
@@ -207,33 +220,96 @@ reg_wr hhh;
 				f_2005_2006 := ^f_2005_2006;
 			}
 			A==0b111 : par{ // $2007
-				if(/&chr_adrs<13:8>) pal_ram.write(chr_adrs<4:0>, Din);
-				else chr_write(chr_adrs, Din);
-				if(f_adrs_inc) chr_adrs += 0b00000000100000;
-				else           chr_adrs += 0b00000000000001;
+				if(/&chr_adrs<13:8>){ // $3F00～$3FFF
+					pal_ram.write(chr_adrs<4:0>, Din);
+				}
+				else{
+					chr_write(chr_adrs, Din);
+				}
+				inc_chr_adrs();
 			}
 		}
 	}
 
 	instruct io_read par{
 		any{
-			A==0b010 : par{ // $2002
-				Dout = f_vblank || f_spr_hit || f_spr_num || 0b00000;
+		//	A==0b010 : ;    // $2002
+			A==0b100 : par{ // $2004
+				spr_ram.read(spr_ram_adrs);
+			}
+			A==0b111 : par{ // $2007
+				if(/&chr_adrs<13:8>){ // $3F00～$3FFF
+					pal_ram.read(chr_adrs<4:0>);
+					io_read_pallet := 0b1;
+				}
+				chr_read(TMP_READ_2007, chr_adrs);
+				inc_chr_adrs();
+			}
+		}
+		A_reg := A;
+		io_read_inst := 0b1;
+	}
+
+	if(io_read_inst){
+		any{
+			A_reg==0b010 : par{ // $2002
+				Dout = f_vblank || f_spr_hit || f_spr_over || 0b00000;
 				f_vblank := 0b0;
 				f_2005_2006 := 0b0;
 			}
-			A==0b100 : par{ // $2004
-				;
+			A_reg==0b100 : par{ // $2004
+				Dout = spr_ram.dout;
 			}
-			A==0b111 : par{ // $2007
-				Dout = tmp_read_2007;
-				if(/&chr_adrs<13:8>){ // $3F00～$3FFF
-					pal_ram.read(chr_adrs<4:0>);
-					generate pal_ram_read_wait.do();
+			A_reg==0b111 : par{ // $2007
+				if(io_read_pallet){
+					Dout = pal_ram.dout;
 				}
-				else chr_read(TMP_READ_2007, chr_adrs);
-				if(f_adrs_inc) chr_adrs += 0b00000000100000;
-				else           chr_adrs += 0b00000000000001;
+				else{
+					Dout = tmp_read_2007;
+				}
+				io_read_pallet := 0b0;
+			}
+		}
+		io_ack();
+		io_read_inst := 0b0;
+	}
+
+	instruct inc_chr_adrs par{
+		if(vblank_do | (^f_bg_enable & ^f_spr_enable)){
+			if(f_adrs_inc) chr_adrs += 32;
+			else           chr_adrs += 1;
+		}
+		else{ // 描画中のアドレス加算
+			// X加算
+			if(bg_name_x==31){
+				bg_scroll_x := 5#0b0 || bg_scroll_x<2:0>;
+				name_id := name_id<1> || ^name_id<0>;
+				chr_adrs := chr_adrs<13:11> || ^chr_adrs<10> || chr_adrs<9:5> || 5#0b0;
+			}
+			else{
+				bg_scroll_x += 8;
+				chr_adrs++;
+			}
+
+			// Y加算
+			if(bg_scroll_y<2:0>==7){
+				if(bg_scroll_y<7:3>==29){
+					bg_scroll_y := 0;
+					name_id := ^name_id<1> || name_id<0>;
+					chr_adrs := 0b00 || ^chr_adrs<11> || chr_adrs<10:0>;
+				}
+			//	else if(bg_scroll_y<7:3>==31){
+			//		bg_scroll_y := 0;
+			//		chr_adrs := 0b0000 || chr_adrs<9:0>;
+			//	}
+				else{
+					bg_scroll_y := (bg_scroll_y<7:3> + 0b00001) || 0b000;
+					chr_adrs := 0b00 || chr_adrs<11:10> || (bg_scroll_y<7:3> + 0b00001) || chr_adrs<4:0>;
+				}
+			}
+			else{
+				bg_scroll_y++;
+				chr_adrs += 0b01_0000_0000_0000;
 			}
 		}
 	}
@@ -247,93 +323,64 @@ reg_wr hhh;
 		chr_write_req();
 	}
 
-	instruct spr_get par{
-		// スプライト上下反転
-		if(spr_tmp_at_7_s) spr_y := ^spr_tmp_y_s<2:0>;
-		else               spr_y :=  spr_tmp_y_s<2:0>;
-		// スプライト高さ
-		if(f_spr_size){ // 16 height
-			spr_pat_base := spr_tmp_id_s<0>;
-			spr_pat_name := spr_tmp_id_s<7:1> || (spr_tmp_at_7_s @ spr_tmp_y_s<3>);
-		}
-		else{ // 8 height
-			spr_pat_base := f_spr_pat_base;
-			spr_pat_name := spr_tmp_id_s;
-		}
-	}
-
-	instruct spr_inv par{
-		if(spr_at_6){ // ビット逆転
-			spr_pat_sel = spr_pat_buf<0:7>;
-		}
-		else{
-			spr_pat_sel = spr_pat_buf;
-		}
-	}
-
-	// スプライトX座標バッファをデクリメント
-	instruct spr_xdown par{
+	// スプライトX座標をチェック
+	instruct spr_x_check par{
+		// 描画開始時なら描画フラグを立てる
 		par(i=0;i<8;i++){
-			spr_buf_x[i]--;
-		}
-		// 描画開始時ならフラグを立てる
-		par(i=0;i<8;i++){
-			if(spr_buf_x[i]==0x00) spr_v[i] := spr_buf_set<i>;
-		}
-	}
-
-	// スプライトパターンバッファを左シフト
-	instruct spr_buf_shift par{
-		any(i=0;i<8;i++){
-			spr_v[i] : par{ spr_buf_patl[i] <<= 1; spr_buf_path[i] <<= 1; }
+			if(spr_buf_x[i]==check_x) spr_draw_on[i] := spr_buf_set<i>;
 		}
 	}
 
 	instruct draw par{
-		if(vblank_run){
-			generate VBLANK.do();
-		}
-		else{
-			generate BG_MEM.do();
-			generate SPR_MEM.do();
-			if(sprbuf_read_on) generate SPR_BUF.do();
-			generate BG_DRAW.do();
+		any{
+			bg_fetch_do   : generate BG_Fetch.do();
+			spr_search_do : generate SPR_Search.do();
+			spr_fetch_do  : if(spr_fetch_on) generate SPR_Fetch.do();
+			vblank_do  : generate VBlank.do();
+			^vblank_do : generate Draw.do();
 		}
 	}
 
 	instruct hblank par{
 		bg_scroll_x := bg_scroll_x_t;
+	//	f_spr_enable := f_spr_enable_tmp;
+	//	f_bg_enable := f_bg_enable_tmp;
 		hsync_buf := 0b1;
-		generate FRAME.do();
+		generate Frame.do();
+if(^hhh) halt(0x45);
 	}
 
 	// 水平同期時の管理
 	// ラインの最初に起動、コメントは起動後のline
-	stage FRAME {
-		reg vbline<5>;//, frame<8>;
-		first_state st_vb_st;
+	stage Frame {
+		reg_wr frame<8>; // for sim
+		first_state st_vb_begin;
 		finish;
 		state st_vb_begin par{ // 240 (0) VBlank start
+			vblank_do := 0b1;
+
+			bg_fetch_do := 0b0;
+			spr_search_do := 0b0;
+			spr_fetch_do := 0b0;
+
 			scanline := 240;
-			// 前フレームで検索されたスプライトが次フレームで表示されないように。
-		//	spr_buf_set := 0x00;
-			vblank_run := 0b1;
 			goto st_nmi;
 		}
 		state st_nmi par{ // 241 (1)
-			scanline := 241;
 			f_vblank := 0b1; // to $2002<7>
 			if(f_NMI_enable & ^first_nmi_disable) NMI_reg := 0b1;
-			vbline := 0b00001;
+			scanline++;
 			goto st_vb;
 		}
 		state st_vb par{ // 242 (2) - 260 (20)
+			if(scanline==259) goto st_vb_end;
 			scanline++;
-			vbline++;
-			if(vbline==0b10011) goto st_vb_end; // 19
 		}
-		state st_vb_end par{ // 261 (21)
-			scanline := 261;
+		state st_vb_end par{ // 261(-1) (21)
+			bg_fetch_do := 0b1;
+			spr_search_do := 0b1;
+			spr_fetch_do := 0b1;
+
 			// 次フレームのための準備
 			f_vblank := 0b0;
 
@@ -343,39 +390,29 @@ reg_wr hhh;
 
 			first_nmi_disable := 0b0;
 			NMI_reg := 0b0;
-
+			scanline++; // 261
 			goto st_draw0;
 		}
 		state st_draw0 par{ // draw line 0
 			name_id := name_id_t;
 			bg_scroll_y := bg_scroll_y_t;
+
+			// 前フレームで検索されたスプライトがライン0で表示されないように
+		//	spr_buf_set := 0x00;
+
+			vblank_do := 0b0;
+
+			frame++;
 			scanline := 0;
-			vblank_run := 0b0;
-		//	frame++;
 			goto st_draw;
 		}
 		state st_draw par{ // draw line 1 - 239
-
-			if(f_bg_enable | f_spr_enable){
-				// ネームテーブルの切り替え(Y方向)
-				if(bg_scroll_y==0xEF){ // 239 ok
-					name_id := ^name_id<1> || name_id_t<0>;
-					bg_scroll_y := 0x00;
-				}
-				else{
-					name_id := name_id<1> || name_id_t<0>;
-					bg_scroll_y++;
-				}
-			}
-
+			if(scanline==238) goto st_vb_begin;
 			scanline++;
-			if(scanline==238){
-				goto st_vb;
-			}
 		}
 	}
 
-	stage VBLANK {
+	stage VBlank {
 		par{
 			if(hsync_buf){
 				hsync_buf := 0b0;
@@ -385,382 +422,383 @@ reg_wr hhh;
 	}
 
 	// BGパターンの読み込み
-	stage BG_MEM {
+	// new (4 * 34 + 2) * 2 = 138 * 2 = 276
+	stage BG_Fetch {
 		sel bg_name_base<4>, bg_attribute_base<8>;
-		reg tile_x<6>, mem_wait<7>;
-		sel d_name_id<2>, d_bg_scroll_y<8>;
-		instrself pat_reg_update;
-		first_state bgm1;
+		reg_wr tile_x<6>;
+		first_state st_bg_name;
 		par{
 			bg_name_base = 0b10 || name_id;
+			bg_name_y = bg_scroll_y<7:3>;
+			bg_name_x = bg_scroll_x<7:3> + tile_x<4:0>;
 			bg_attribute_base = bg_name_base || 0b1111;
-
-			// 描画中のものを更新しないようにする
-			instruct pat_reg_update par{
-				bg_col_high := bg_col_high_tmp;
-				bg_pat_low := bg_pat_low_tmp;
-				bg_pat_high := bg_pat_high_tmp;
-			}
 			finish;
 		}
-		state bgm1 par{
-			if(tile_num!=0){
-				pat_reg_update();
-				// BG-ONの時は有効パターンを描画し、BG-OFFの時は無を描画する
-				bg_draw_do := 0b1;
+		state st_bg_name par{
+			// パターンレジスタの更新
+			bg_attr_low  := bg_attr_low<7:0>  || 8#bg_attr_hl<0>;
+			bg_attr_high := bg_attr_high<7:0> || 8#bg_attr_hl<1>;
+			bg_pat_low  := bg_pat_low<7:0>  || bg_pat_low_tmp;
+			bg_pat_high := bg_pat_high<7:0> || bg_pat_high_tmp;
+
+			if(tile_x==2){
+				if(^vblank_do) draw_do := 0b1;
+				spr_x_check(0x00); // X=0のスプライト表示のため
 			}
 
-			if(f_bg_enable){
-				// read nametable 0b10nnyyyyyxxxxx
-				chr_read(BG_PAT_NAME, bg_name_base || bg_scroll_y<7:3> || tile_x<4:0>);
+			if(fetch_enable){
+				// read nametable 0b10_nnyy_yyyx_xxxx
+				chr_read(BG_NAME, bg_name_base || bg_name_y || bg_name_x);
 			}
-			goto bgm1w;
+			goto st_bg_name_wait;
 		}
-		state bgm1w goto bgm2;
-		state bgm2 par{
-			if(f_bg_enable){
-				// read attribute 0b10nn1111yyyxxx
-				chr_read(BG_PAT_ATTRIBUTE, bg_attribute_base || bg_scroll_y<7:5> || tile_x<4:2>);
+		state st_bg_name_wait goto st_bg_attr;
+		state st_bg_attr par{
+			if(fetch_enable){
+				// read attribute 0b10_nn11_11yy_yxxx
+				chr_read(BG_ATTRIBUTE, bg_attribute_base || bg_name_y<4:2> || bg_name_x<4:2>);
 			}
-			goto bgm2w;
+			goto st_bg_attr_wait;
 		}
-		state bgm2w goto bgm3;
-		state bgm3 par{
-			if(f_bg_enable){
-				chr_read(BG_PAT_LOW_TMP, 0b0 || f_bg_pat_base || bg_pat_name || 0b0 || bg_scroll_y<2:0>);
+		state st_bg_attr_wait goto st_bg_patl;
+		state st_bg_patl par{
+			if(fetch_enable){
+				// read pat low 0b0b_nnnn_nnnn_0yyy
+				chr_read(BG_PAT_LOW_TMP, 0b0 || f_bg_pat_base || bg_name_data || 0b0 || bg_scroll_y<2:0>);
 			}
-			goto bgm3w;
+			goto st_bg_patl_wait;
 		}
-		state bgm3w goto bgm4;
-		state bgm4 par{
-			if(f_bg_enable){
-				chr_read(BG_PAT_HIGH_TMP, 0b0 || f_bg_pat_base || bg_pat_name || 0b1 || bg_scroll_y<2:0>);
+		state st_bg_patl_wait goto st_bg_path;
+		state st_bg_path par{
+			if(fetch_enable){
+				// read pat high 0b0b_nnnn_nnnn_1yyy
+				chr_read(BG_PAT_HIGH_TMP, 0b0 || f_bg_pat_base || bg_name_data || 0b1 || bg_scroll_y<2:0>);
 			}
-			goto bgm4w;
+			goto st_bg_path_wait;
+
+			if(tile_x==33) spr_fetch_on := 0b1;
 		}
-		state bgm4w par{
+		state st_bg_path_wait par{
 			// BGパレット選択
-			bg_col_high_tmp := (bg_pat_attribute >> (bg_scroll_y<4> || tile_x<1> || 0b0))<1:0>;
+			bg_attr_hl := (bg_attr_data >> (bg_name_y<1> || bg_name_x<1> || 0b0))<1:0>;
 
-			// ネームテーブル境界越え
-			if(tile_x<4:0>==0b11111) name_id := name_id<1> || ^name_id<0>;
+			if((tile_x==33) ){//& fetch_enable){
+				// ネームテーブルの切り替え(Y方向)
+				if(bg_scroll_y==0xEF){ // 239 ok
+					name_id := ^name_id<1> || name_id_t<0>;
+					bg_scroll_y := 0;
+				}
+				else{
+					name_id := name_id<1> || name_id_t<0>;
+					bg_scroll_y++;
+				}
+			}
+			else{
+				// ネームテーブルX境界越え
+				if(bg_name_x==31) name_id := name_id<1> || ^name_id<0>;
+			}
 
+			any{
+				tile_x==1 : goto st_bg_dummy;
+				tile_x==33 : goto st_bg_end;
+				else : goto st_bg_name;
+			}
 			tile_x++;
-			tile_num++;
-		//	if(tile_x==(0b1 || bg_scroll_x<7:3>)) goto stdrww;
-			if(tile_num==32) goto stdrww;
-			else goto bgm1;
-			mem_wait := 0;
-		} // 8*33=264
-		state stdrww /*if(^bg_draw_do)*/par{
-			if(mem_wait==0) pat_reg_update();
-			if(mem_wait==8){ // NG:4,6,7 OK:8
-				sprbuf_read_on := 0b1;
-				mem_wait := 0;
-				goto stsprw;
-			}
-			else mem_wait++;
-		} // 264+8=272
-		state stsprw if(dummy_read_on){ // 272+41=313 341-(313+4)=24
-			if(mem_wait==21){ // 待ち マリオ OK:21 NG:22
-				mem_wait := 0;
-				goto stdmy;
-			}
-			else mem_wait++;
 		}
-		state stdmy par{
-
-			if(bg_scroll_y==239){
-				d_name_id = ^name_id<1> || name_id_t<0>;
-				d_bg_scroll_y = 0;
+		state st_bg_dummy par{
+			if(fetch_enable){
+				chr_read(BG_NAME, bg_name_base || bg_name_y || bg_name_x);
+			}
+			goto st_bg_dummy_wait;
+		}
+		state st_bg_dummy_wait par{
+			// 2回実行
+			reg_wr dummy_count;
+			if(dummy_count==0b0){
+				dummy_count := 0b1;
+				goto st_bg_dummy;
 			}
 			else{
-				d_name_id = name_id<1> || name_id_t<0>;
-				d_bg_scroll_y = bg_scroll_y + 1;
+				dummy_count := 0b0;
+				goto st_bg_name;
 			}
-
-			if(f_bg_enable){
-				chr_read(NONE, 0b10 || d_name_id || d_bg_scroll_y<7:3> || bg_scroll_x<7:3>);
-			}
-			goto stdmyw;
 		}
-		state stdmyw par{
-			reg_wr dmy_count;
-			if(dmy_count==0) goto stdmy;
-			else{
-				goto stend;
-			}
-			dmy_count := ^dmy_count;
-		}
-		state stend if(mem_hsync){
+		state st_bg_end if(hsync_buf){
 			// 次スキャンラインのための準備
-			tile_x := 0b0 || bg_scroll_x<7:3>;
-			tile_num := 0;
+			tile_x := 0;
 			hsync_buf := 0b0;
-			sprbuf_read_on := 0b0;
-			goto bgm1;
+			spr_fetch_on := 0b0;
+			goto st_bg_name;
 		}
 	}
 
-	// 次のラインで描画されるべきスプライトの探索
-	// 4*64+2=258
-	stage SPR_MEM {
-		reg srch_slct<8>, spr_mad<6>;
-		sel srch_i<3>, spr_inc<6>, scan_sub<9>;
+	// 次のラインで描画されるスプライトの探索
+	// 描画するスプライトのみ読み取り（実機はこちらっぽい）
+	// 32 + 3*8 + 2 = 58
+	stage SPR_Search {
+		reg_wr spr_adrs<6>, spr_tmp_num<4>;
+		sel spr_adrs_inc<6>, tmp_index<3>;
 		instrself srch_end;
-		first_state sst;
+		first_state st_spr_srch_begin;
 		par{
-			any(i=0;i<8;i++){ // ワンホットからインデックスへ変換
-				srch_slct<i> : srch_i = i;
-			}
+			tmp_index = spr_tmp_num<2:0>;
 			finish;
 		}
-		state sst par{
+		state st_spr_srch_begin par{
+			spr_adrs := 0b000000;
+			spr_tmp_num := 0b0000;
 			spr_zero_tmp := 0b0;
-			srch_slct := 0x01;
-			spr_mad := 0b000000;
-			f_spr_num := 0b0;
+			f_spr_over := 0b0;
+			// 8x16モードでspr_baseを1とするために非表示インデックスは0xFFで初期化
+			par(i=0;i<8;i++){
+				spr_tmp_idx[i] := 0xFF;
+			}
+		//	par(i=0;i<8;i++){
+		//		spr_tmp_y[i] := 0; // 仮
+		//	}
 			if(f_spr_enable){
-				spr_ram.read(0x01);
-				goto st1;
+				spr_ram.read(0x00); // Y座標
+				goto st_spr_srch_check_y;
 			}
-			else goto stset;
+			else goto st_spr_srch_end;
 		}
-		state st1 par{
-			spr_tmp_id[srch_i] := spr_ram.dout;
-			spr_ram.read(spr_mad || 0b10);
-			goto st2;
-		}
-		state st2 par{
-			spr_tmp_at[srch_i] := spr_ram.dout<7:5> || spr_ram.dout<1:0>;
-			spr_ram.read(spr_mad || 0b11);
-			goto st3;
-		}
-		state st3 par{
-			spr_tmp_x[srch_i] := spr_ram.dout;
-			spr_ram.read(spr_mad || 0b00);
-			goto st4;
-		}
-		state st4 par{
-			scan_sub = (0b0 || scanline<7:0>) - (0b0 || spr_ram.dout);
-			if(
-				(scan_sub<8:4>==0b00000) 
+		state st_spr_srch_check_y par{
+			// 次のラインで描画するか
+			sel scan_sub<9>;
+			scan_sub = scanline - (0b0 || spr_ram.dout);
+			if( //(spr_ram.dout<7:4>!=0xF) & // spr_y < 240
+				(scan_sub<8:4>==0b00000)
 			    & ((f_spr_size==0b1) | ((f_spr_size==0b0) & (scan_sub<3>==0b0)))
-			){
-				if(spr_mad==0b000000) spr_zero_tmp := 0b1;
-			//	if(srch_slct==0x00) f_spr_num := 0b1; // 9個以上
-				if(srch_slct==0x80){ // 8個以上
-					f_spr_num := 0b1;
-					srch_end();
-				}
-				srch_slct := srch_slct << 1;
+			){ // 描画する
+				spr_tmp_y[tmp_index] := scan_sub<3:0>;
+				spr_ram.read(spr_adrs || 0b01); // パターンインデックス
+				goto st_spr_srch_read_idx;
 			}
-			spr_tmp_y[srch_i] := scan_sub<3:0>;
-
-			spr_inc = spr_mad + 0b000001;
-			spr_mad := spr_inc;
-			spr_ram.read(spr_inc || 0b01);
-
-			if(/&spr_mad | srch_end) goto stset;
-			else goto st1;
+			else{ // 描画しない
+				spr_adrs_inc = spr_adrs + 1;
+				spr_adrs := spr_adrs_inc;
+				spr_ram.read(spr_adrs_inc || 0b00); // Y座標
+				if(/&spr_adrs) goto st_spr_srch_end;
+			}
 		}
-		state stset if(dummy_read_on){
-			// ワンホットから描画フラグへの変換
-			spr_buf_set := srch_slct - 0x01;
-			goto stend;
+		state st_spr_srch_read_idx par{
+			spr_tmp_idx[tmp_index] := spr_ram.dout;
+			spr_ram.read(spr_adrs || 0b10); // アトリビュート
+			goto st_spr_srch_read_attr;
 		}
-		state stend if(mem_hsync){
-			goto sst;
+		state st_spr_srch_read_attr par{
+			spr_tmp_attr[tmp_index] := spr_ram.dout;
+			spr_ram.read(spr_adrs || 0b11); // X座標
+			goto st_spr_srch_read_x;
+		}
+		state st_spr_srch_read_x par{
+			spr_tmp_x[tmp_index] := spr_ram.dout;
+
+			if(spr_adrs==0) spr_zero_tmp := 0b1;
+
+			if(spr_tmp_num==7){ // 8個以上
+				f_spr_over := 0b1;
+				srch_end();
+			}
+			spr_tmp_num++;
+
+			spr_adrs_inc = spr_adrs + 1;
+			spr_adrs := spr_adrs_inc;
+			spr_ram.read(spr_adrs_inc || 0b00); // Y座標
+
+			if(/&spr_adrs | srch_end) goto st_spr_srch_end;
+			else goto st_spr_srch_check_y;
+		}
+		state st_spr_srch_end if(hsync_buf){
+			// 描画フラグへの変換
+			spr_buf_set := ^(8#0b1 << spr_tmp_num);
+			goto st_spr_srch_begin;
 		}
 	}
 
 	// スプライトパターンの読み込み
-	// 5*8+1=41
-	stage SPR_BUF {
-		reg buf_slct<8>;
-		sel buf_i<3>;
-		first_state sst;
+	// new8 (2 + 2) * 8 * 2 = 32 * 2 = 64
+	// new16 2 * 16 * 2 = 64
+	stage SPR_Fetch {
+		reg_wr buf_index<3>;
+		sel spr_pat_base, spr_pat_index<8>, spr_pat_y<3>;
+		first_state st_spr_fetch_begin;
 		par{
-			any(i=0;i<8;i++){ // ワンホットからインデックスへ変換
-				buf_slct<i> : buf_i = i;
+			// スプライト高さ
+			if(f_spr_size){ // 16 height
+				spr_pat_base = spr_tmp_idx[buf_index]<0>;
+				spr_pat_index = spr_tmp_idx[buf_index]<7:1> || (spr_tmp_attr[buf_index]<7> @ spr_tmp_y[buf_index]<3>);
 			}
+			else{ // 8 height
+				spr_pat_base = f_spr_pat_base;
+				spr_pat_index = spr_tmp_idx[buf_index];
+			}
+			// スプライト上下反転
+			if(spr_tmp_attr[buf_index]<7>) spr_pat_y = ^spr_tmp_y[buf_index]<2:0>;
+			else                           spr_pat_y =  spr_tmp_y[buf_index]<2:0>;
 			finish;
 		}
-		state sst par{
-			buf_slct := 0b00000001;
-			par(i=0;i<8;i++){
-				spr_v[i] := 0b0;
+		state st_spr_fetch_begin par{
+			goto st_spr_fetch_dummy;
+		}
+		state st_spr_fetch_dummy par{
+			if(fetch_enable){
+				// ダミーフェッチ
+				chr_read(NONE, 0b10_0000_0000_0000); // 0x2000
 			}
-			goto st1;
+			goto st_spr_fetch_dummy_wait;
 		}
-		state st1 par{
-			spr_get(spr_tmp_y[buf_i], spr_tmp_id[buf_i], spr_tmp_at[buf_i]<4>);
-			spr_buf_x[buf_i] := spr_tmp_x[buf_i];
-			spr_buf_at[buf_i] := spr_tmp_at[buf_i]<2:0>;
-			buf_read := buf_i;
-			goto sprm1;
-		}
-		state sprm1 par{
-			if(view_enable){
-				chr_read(SPR_PAT_LOW, 0b0 || spr_pat_base || spr_pat_name || 0b0 || spr_y<2:0>);
+		state st_spr_fetch_dummy_wait par{
+			// 2回実行
+			reg_wr dummy_count;
+			if(dummy_count==0b0){
+				dummy_count := 0b1;
+				goto st_spr_fetch_dummy;
 			}
-			goto sprm1w;
-		}
-		state sprm1w goto sprm2;
-		state sprm2 par{
-			if(view_enable){
-				chr_read(SPR_PAT_HIGH, 0b0 || spr_pat_base || spr_pat_name || 0b1 || spr_y<2:0>);
+			else{
+				dummy_count := 0b0;
+				goto st_spr_fetch_patl;
 			}
-			goto sprm2w;
 		}
-		state sprm2w par{
-			if(buf_slct<7>){
-				dummy_read_on := 0b1;
-				goto stend;
+		state st_spr_fetch_patl par{
+			spr_buf_x[buf_index] := spr_tmp_x[buf_index];
+			spr_buf_attr[buf_index] := spr_tmp_attr[buf_index];
+			buf_read := buf_index;
+
+			if(fetch_enable){
+				// 0b0b_nnnn_nnnn_0yyy
+				chr_read(SPR_PAT_LOW, 0b0 || spr_pat_base || spr_pat_index || 0b0 || spr_pat_y);
 			}
-			else goto st1;
-			buf_slct := buf_slct << 1;
+			goto st_spr_fetch_patl_wait;
 		}
-		state stend if(hsync_buf){
+		state st_spr_fetch_patl_wait goto st_spr_fetch_path;
+		state st_spr_fetch_path par{
+			if(fetch_enable){
+				// 0b0b_nnnn_nnnn_1yyy
+				chr_read(SPR_PAT_HIGH, 0b0 || spr_pat_base || spr_pat_index || 0b1 || spr_pat_y);
+			}
+			goto st_spr_fetch_path_wait;
+		}
+		state st_spr_fetch_path_wait par{
+			if(buf_index==7){
+				goto st_spr_fetch_end;
+			}
+			else goto st_spr_fetch_dummy;
+			buf_index++;
+		}
+		state st_spr_fetch_end if(hsync_buf){
+			// 描画スプライトにゼロスプライトが含まれているかどうか
 			spr_zero := spr_zero_tmp;
-			spr_xdown(); // X=0のスプライト表示のため
-			dummy_read_on := 0b0;
-			goto sst;
+			// 例えばこの位置で描画開始フラグをクリアする
+			par(i=0;i<8;i++){
+				spr_draw_on[i] := 0b0;
+			}
+			goto st_spr_fetch_begin;
 		}
 	}
 
 	// BG SPR 描画
-	stage BG_DRAW {
+	stage Draw {
 		sels spr_col[8]<5>;
-		sel spr_mcol<5>, bg_col_low<2>, zero_hit;
-		sel spr_face<4>, bg_face<4>, pal_adrs<5>;
-		reg dsc_set_reg, clip_x<8>;
-		instrself dsc_set, fi_bg_left_clip, fi_spr_left_clip;
-		first_state sst;
-		par{
-			// SPR_COL
-			par(i=0;i<8;i++){
-				spr_col[i] = spr_buf_at[i] || spr_buf_path[i]<7> || spr_buf_patl[i]<7>;
-			}
-			// 描画されるべきスプライト選択
-			alt(i=0;i<8;i++){
-				spr_v[i] & /&spr_buf_x[i]<7:3> & /|spr_col[i]<1:0> : spr_mcol = spr_col[i];
-				else : spr_mcol = 0b10000;
-			}
+		sel spr_mcol<5>;
+		first_state st_draw;
+		state st_draw par{
+			if(draw_do){
+				reg_wr draw_x<8>;
+				sel mask<16>, bg_col_low<2>, bg_col_high<2>;
+				mask = 0x8000 >> ((0b0 || bg_scroll_x<2:0>) + (0b0 || draw_x<2:0>));
+				bg_col_low  = ((bg_pat_high  & mask)!=0) || ((bg_pat_low  & mask)!=0);
+				bg_col_high = ((bg_attr_high & mask)!=0) || ((bg_attr_low & mask)!=0);
 
-			if(spr_v[0] & /&spr_buf_x[0]<7:3> & /|spr_col_0<1:0>) zero_hit = 0b1;
-			else zero_hit = 0b0;
-
-			bg_col_low = bg_pat_high<7> || bg_pat_low<7>;
-		}
-
-		state sst par{
-			vx := 0x00;
-			dsc_set_reg := 0b0;
-			clip_x := 0x00;
-			goto st1;
-		}
-		state st1 par{
-			if(bg_draw_do){
-				if(^dsc_set_reg){
-					// 描画開始Ｘ座標
-					if(vx<2:0>==bg_scroll_x<2:0>){
-						dsc_set();
-						dsc_set_reg := 0b1;
-						goto st2;
-					}
-					else finish;
+				// スプライトカラー
+				par(i=0;i<8;i++){
+					spr_col[i] = spr_buf_attr[i]<5> || spr_buf_attr[i]<1:0> || spr_buf_path[i]<7> || spr_buf_patl[i]<7>;
 				}
-				else{
-					// 描画終了Ｘ座標
-					if((vx<7:3>==0b00000) & (vx<2:0>==bg_scroll_x<2:0>)){
-						dsc_set_reg := 0b0;
-						bg_draw_do := 0b0;
-						goto sst;
-						finish;
-					}
-					else goto st2;
-				}
-				vx++;
-
-				if(dsc_set | dsc_set_reg){
-
-					spr_face = spr_mcol<3:2> || (spr_mcol<1:0> & 2#f_spr_enable);
-					bg_face = bg_col_high || (bg_col_low & 2#f_bg_enable);
-
-					if(clip_x<7:3>==0b00000){
-						if(f_bg_left_clip) fi_bg_left_clip();
-						if(f_spr_left_clip) fi_spr_left_clip();
-					}
-					clip_x++;
-
-					alt{
-						/|spr_face<1:0> & ^spr_mcol<4> & ^fi_spr_left_clip : par{ // SPR front
-							pal_adrs = 0b1 || spr_face;
-						}
-						/|bg_face<1:0> & ^fi_bg_left_clip : par{ // BG front
-							pal_adrs = 0b0 || bg_face;
-						}
-						/|spr_face<1:0> & spr_mcol<4> & ^fi_spr_left_clip : par{ // SPR back
-							pal_adrs = 0b1 || spr_face;
-						}
-						else : par{ // back color
-							pal_adrs = 0b00000;
-						}
-					}
-					pal_ram.read(pal_adrs);
-
-					if(f_spr_enable & spr_zero & /|bg_face<1:0> & zero_hit){
-						f_spr_hit := 0b1;
-					}
-					spr_buf_shift();
-					spr_xdown();
+				// 描画されるべきスプライト選択、低インデックス優先
+				alt(i=0;i<8;i++){
+					spr_draw_on[i] & /|spr_col[i]<1:0> : spr_mcol = spr_col[i];
+					else : spr_mcol = 0b10000;
 				}
 
-				if(vx<2:0>!=0b111){
-					bg_pat_low <<= 1;
-					bg_pat_high <<= 1;
+				sel spr_face<4>, bg_face<4>;
+				// ライン0でスプライトが表示されないように
+				spr_face = spr_mcol<3:0> & (0b11 || 2#(scanline<7:0>!=0));
+				bg_face = bg_col_high || bg_col_low;
+
+				// draw_x < 8
+				sel bg_left_clip, spr_left_clip;
+				bg_left_clip  = f_bg_left_clip  & (draw_x<7:3>==0b00000);
+				spr_left_clip = f_spr_left_clip & (draw_x<7:3>==0b00000);
+
+				sel pal_adrs<5>;
+				alt{
+					f_spr_enable & ^spr_left_clip & /|spr_face<1:0> & ^spr_mcol<4> : par{ // SPR front
+						pal_adrs = 0b1 || spr_face;
+					}
+					f_bg_enable & ^bg_left_clip & /|bg_face<1:0> : par{ // BG front
+						pal_adrs = 0b0 || bg_face;
+					}
+					f_spr_enable & ^spr_left_clip & /|spr_face<1:0> & spr_mcol<4> : par{ // SPR back
+						pal_adrs = 0b1 || spr_face;
+					}
+					else : par{ // back color
+						pal_adrs = 0b00000;
+					}
 				}
+				pal_ram.read(pal_adrs);
+
+				// スプライト0ヒットチェック
+				sel zero_draw;
+				zero_draw = spr_zero & spr_draw_on_0 & /|spr_col_0<1:0>;
+				if(fetch_enable & zero_draw & /|bg_face<1:0>){
+					f_spr_hit := 0b1;
+				}
+
+				// スプライトパターンバッファを左シフト
+				any(i=0;i<8;i++){
+					spr_draw_on[i] : par{ spr_buf_patl[i] <<= 1; spr_buf_path[i] <<= 1; }
+				}
+
+				sel draw_x_inc<8>;
+				draw_x_inc = draw_x + 0x01;
+				spr_x_check(draw_x_inc);
+
+				// 256ドットで描画終了
+				if(draw_x==255) draw_do := 0b0;
+				draw_x := draw_x_inc;
+				goto st_vout;
 			}
 			else finish;
 		}
-		state st2 par{
+		state st_vout par{
 			if(f_col_mono) VIDEO = pal_ram.dout<5:4> || 0x0;
 			else VIDEO = pal_ram.dout<5:0>;
 			VIDEO_enable();
-			goto st1;
-			finish;
-		}
-	}
-
-	stage pal_ram_read_wait {
-		par{
-			tmp_read_2007 := pal_ram.dout;
+			goto st_draw;
 			finish;
 		}
 	}
 
 	// レジスタ読み込み
-	stage read_wait {
-		if(read_ack){
-			switch(read_id_reg){
-				case BG_PAT_NAME      : bg_pat_name      := PDin;
-				case BG_PAT_ATTRIBUTE : bg_pat_attribute := PDin;
-				case BG_PAT_LOW_TMP   : bg_pat_low_tmp   := PDin;
-				case BG_PAT_HIGH_TMP  : bg_pat_high_tmp  := PDin;
-				case SPR_PAT_LOW      : par{
-					// spr_pat_low := PDin;
-					spr_inv(spr_tmp_at[buf_read]<3>, PDin);
-					spr_buf_patl[buf_read] := spr_pat_sel;
+	stage chr_read_wait {
+		par{
+			sel spr_pat<8>;
+			// ビットリバース
+			if(spr_tmp_attr[buf_read]<6>) spr_pat = PDin<0:7>;
+			else                          spr_pat = PDin;
+
+			if(chr_read_ack){
+				switch(read_id_reg){
+					case BG_NAME         : bg_name_data    := PDin;
+					case BG_ATTRIBUTE    : bg_attr_data    := PDin;
+					case BG_PAT_LOW_TMP  : bg_pat_low_tmp  := PDin;
+					case BG_PAT_HIGH_TMP : bg_pat_high_tmp := PDin;
+					case SPR_PAT_LOW     : spr_buf_patl[buf_read] := spr_pat;
+					case SPR_PAT_HIGH    : spr_buf_path[buf_read] := spr_pat;
+					case TMP_READ_2007   : tmp_read_2007 := PDin;
 				}
-				case SPR_PAT_HIGH     : par{
-					// spr_pat_high := PDin;
-					spr_inv(spr_tmp_at[buf_read]<3>, PDin);
-					spr_buf_path[buf_read] := spr_pat_sel;
-				}
-				case TMP_READ_2007    : tmp_read_2007 := PDin;
+				finish;
 			}
-			finish;
 		}
 	}
 

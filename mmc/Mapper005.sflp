@@ -84,15 +84,12 @@ circuit Mapper005
 //	reg_wr fSaveRAMenable;
 	reg_ws IRQn_reg;
 
-	instrself map_rom, map_exrom, map_exram;
+	reg tile_bank<6>, name_count<3>, pat_count<7>, fetch_pat;
 
-	reg_wr mmc5_prg_size<2>, mmc5_chr_size<2>;
-//	reg_wr fSaveRAMenable;
-	reg_ws IRQn_reg;
+	reg_wr ppu_ctrl2<8>;
 
-	reg pre_chr_A12;
-	instrself hblank;
-	reg irq_enable, irq_status<8>, irq_scanline<8>, irq_line<8>, irq_clear;
+	instrself hsync, irq_reset;
+	reg irq_enable, irq_counter<8>, scan_cycles<8>, irq_inframe, irq_pending, irq_line<8>;
 
 	sel pA<16>;
 
@@ -364,31 +361,78 @@ circuit Mapper005
 		}
 	}
 
-	instruct chr_read par{
-		if(chr_A<13>==0b0){
-			chr_ram_read(chr_read_bank || chr_A<9:0>);
-		}
+	// CPU → PPU_io 監視
+	if(prg_A==(0x2001)<14:0>) ppu_ctrl2 := prg_Din;
 
-		if(chr_A<12> & (pre_chr_A12==0b0)) hblank();
-		pre_chr_A12 := chr_A<12>;
+	instruct chr_read par{
+		if(chr_A<13:12>==0b10){ // ネーム、属性
+			if(chr_A<9:6>==0b1111){ // 属性 0x23C0 10_0011_11--_----
+				tile_bank := ext_ram_dout<5:0>;
+				sel attr<2>;
+				attr = ext_ram_dout<7:6>;
+				chr_dout_reg := attr || attr || attr || attr;
+				chr_mem_read(chr_read_bank<8:0> || chr_A<9:0>); // ackのため
+				name_count := 0;
+			}
+			else{ // ネーム 0x2000
+				if(graphic_mode<1>==0b0){
+					ext_ram_read(chr_A<9:0>);
+				}
+
+				if(name_count==2){
+					fetch_pat := 0b1; // BGパターン
+					pat_count := 4;
+					hsync();
+				}
+				name_count++;
+			}
+		}
+		if(chr_A<13>==0b0){ // パターン
+			if(fetch_pat){ // BGパターン
+			//	if(graphic_mode==1){
+					chr_mem_read(0b0 || tile_bank || chr_A<11:0>);
+			//	}
+			}
+			else{ // SPRパターン
+				chr_mem_read(chr_read_bank<8:0> || chr_A<9:0>);
+			}
+
+			if(pat_count==83){ // 34*2+8*2=84
+				fetch_pat := 0b1; // BGパターン
+				pat_count := 0;
+			}
+			else{
+				if(pat_count==67){ // 34*2
+					fetch_pat := 0b0; // SPRパターン
+				}
+				pat_count++;
+			}
+			name_count := 0;
+		}
 	}
 
-	instruct hblank par{
+	instruct hsync par{
+		irq_inframe := 0b1;
+		scan_cycles := 0;
 
-		if(0b1/*line < 240*/){
-			irq_scanline++;
-			irq_status := irq_status | 0x40;
-			irq_clear := 0;
+		if(/*(ppu_ctrl2<4:3>==0b00) |*/ ^irq_inframe){
+			// BG,SPRフェッチなしか、vblank中
+			irq_counter := 0;
 		}
-/*
-		if(irq_enable){
-			if(irq_counter==0x01){
-				irq_counter := irq_latch;
-				IRQn_reg := 0b0;
+		else{
+			if(irq_counter==irq_line){
+				irq_pending := 0b1;
+				if(irq_enable){
+					IRQn_reg := 0b0;
+				}
 			}
-			else irq_counter--;
+			irq_counter++;
 		}
-*/
+	}
+
+	instruct Phi par{
+		if(scan_cycles==120) irq_inframe := 0b0;
+		scan_cycles++;
 	}
 
 }

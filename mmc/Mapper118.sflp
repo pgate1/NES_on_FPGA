@@ -229,50 +229,42 @@ circuit Mapper118
 	}
 */
 /*
+	// A12の立ち上がりでHSyncとする（Phiでチェック）
+	// NTATでPPU4clk==CPU1clk+2clkで確実にしたい
+	reg_wr chr_A12_low_count<4>;
+	sel count_max<4>;
+	count_max = 12; // 3NG 4,6ok早い?
 	instruct Phi par{
-		reg_wr hcount<8>;
-		instrself hblank;
-
-		if(hcount==0x71){ // MPUで114clkくらい？
-			hblank();
-			hcount := 0x00;
+		if(chr_A<12>==0b0){
+			if(chr_A12_low_count!=count_max) chr_A12_low_count++;
 		}
-		else hcount++;
+		else chr_A12_low_count := 0;
 	}
 */
-
-	instruct hblank par{
-
-	// VBlank中はIRQは発生させないこと
-	// vcountはVBlankから開始するでok
-	//	reg_wr vcount<8>;
-	//	reg_ws vblank;
-
-/*
-		any{
-			vblank & (vcount==0x15) : par{ // 21
-				vcount := 0x00;
-				vblank := 0b0;
-			}
-			(^vblank) & (vcount==0xEF) : par{ // 239
-				vcount := 0x00;
-				vblank := 0b1;
-			}
-			else : vcount++;
+	// A12の立ち上がりでHSyncとする（chr_read or chr_writeでチェック）
+	reg_wr chr_A12_low_count<3>;
+	sel count_max<3>;
+	count_max = 6; // 3,4NG 5,6ok
+	if(chr_read){// | chr_write){
+		if(chr_A<12>==0b0){
+			if(chr_A12_low_count!=count_max) chr_A12_low_count++;
 		}
-*/
+		else chr_A12_low_count := 0;
+	}
 
-// MMC3とMMC5は本来A13(A12?)を見てフレームカウンタを動作させている模様
+	reg_wr pre_chr_A12;
+	pre_chr_A12 := chr_A<12>;
+	if(chr_A<12> & ^pre_chr_A12 & (chr_A12_low_count==count_max)) hsync();
 
-//		if(irq_enabled & ^vblank){
-		if(irq_enabled & f_draw){
-			if(irq_counter==0x00){
-				irq_counter := irq_latch;
-				IRQn_reg := 0b0;
-			}
-			else irq_counter--;
+	instruct hsync par{
+		if((irq_counter==0) | irq_reload){
+			irq_counter := irq_latch;
 		}
-		f_draw := 0b0;
+		else irq_counter--;
+		if((irq_counter==1) /*| (irq_reload & (irq_latch==0))*/){
+			if(irq_enable) IRQn_reg := 0b0;
+		}
+		irq_reload := 0b0;
 	}
 
 }
